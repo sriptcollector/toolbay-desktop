@@ -120,7 +120,7 @@ h2 { font-size: 13px; font-family: var(--mono); font-weight: 400; text-transform
 .progress { height: 8px; border-radius: 99px; background: var(--chip); overflow: hidden; }
 .progress > div { height: 100%; width: 100%; background: var(--premium); transform-origin: left; transition: transform .25s var(--ease); }
 .progress.indeterminate > div { animation: slide 1.2s var(--ease) infinite; }
-@keyframes slide { from { transform: translateX(-100%) scaleX(.3); } to { transform: translateX(330%) scaleX(.3); } }
+@keyframes slide { from { transform: translateX(-30%) scaleX(.3); } to { transform: translateX(100%) scaleX(.3); } }
 
 /* Tool tiles (library grid) */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }

@@ -71,6 +71,10 @@ pub struct PlatformEntry {
     /// .app bundle name inside the dmg (macOS).
     #[serde(default)]
     pub app: Option<String>,
+    /// Where the installer puts itself by default, e.g. "%LOCALAPPDATA%\Toolbay Flow". The hub asks
+    /// for its own folder with /D=, but an installer that finds an earlier install reuses that folder.
+    #[serde(default)]
+    pub install_dir: Option<String>,
     /// Uninstaller file name in the install folder (NSIS). Defaults to uninstall.exe.
     #[serde(default)]
     pub uninstaller: Option<String>,

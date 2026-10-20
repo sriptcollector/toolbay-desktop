@@ -192,7 +192,14 @@ async fn install(app: &AppHandle, slug: &str, source: &str) -> Result<InstalledT
         version: r.manifest.version.clone(),
         repo: if r.manifest.repo.is_empty() { source.into() } else { r.manifest.repo.clone() },
         kind,
-        dir: if cfg!(target_os = "macos") { exe.to_string_lossy().into() } else { dir.to_string_lossy().into() },
+        // The folder it actually lives in (an installer may reuse an earlier install location).
+        dir: if cfg!(target_os = "macos") {
+            exe.to_string_lossy().into()
+        } else if exe.starts_with(&dir) {
+            dir.to_string_lossy().into()
+        } else {
+            exe.parent().unwrap_or(&dir).to_string_lossy().into()
+        },
         exe: exe.to_string_lossy().into(),
         launch_args: r.manifest.launch.args.clone(),
         uninstaller: uninstaller.map(|u| u.to_string_lossy().into()),
@@ -277,15 +284,84 @@ async fn install_nsis(package: &Path, dir: &Path, r: &Resolved) -> Result<(PathB
     if !status.success() {
         return Err("The installer didn't finish. Please try again.".into());
     }
-    let exe = program_in(dir, r.entry.exe.as_deref())?;
-    let named = r.entry.uninstaller.clone().filter(|u| safe_rel(u));
-    let un = named
-        .iter()
-        .map(String::as_str)
-        .chain(["uninstall.exe", "Uninstall.exe"])
-        .map(|n| dir.join(n))
-        .find(|p| p.exists());
-    Ok((exe, un))
+    // Where did it actually go? Our folder, unless the tool was installed before and its
+    // installer reused that folder: then its manifest default or the Windows uninstall entry.
+    let mut candidates = vec![dir.to_path_buf()];
+    if let Some(d) = r.entry.install_dir.as_deref() {
+        candidates.push(PathBuf::from(expand_env(d)));
+    }
+    candidates.extend(registry_install_dirs(&r.manifest.name));
+    for c in candidates {
+        let Some(exe) = r.entry.exe.as_deref().filter(|e| safe_rel(e)).map(|e| c.join(e)).filter(|p| p.exists()) else {
+            continue;
+        };
+        let named = r.entry.uninstaller.clone().filter(|u| safe_rel(u));
+        let un = named
+            .iter()
+            .map(String::as_str)
+            .chain(["uninstall.exe", "Uninstall.exe"])
+            .map(|n| c.join(n))
+            .find(|p| p.exists());
+        return Ok((exe, un));
+    }
+    Ok((program_in(dir, r.entry.exe.as_deref())?, None))
+}
+
+/// "%LOCALAPPDATA%\Toolbay Flow" -> "C:\Users\me\AppData\Local\Toolbay Flow"
+#[cfg(windows)]
+fn expand_env(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(start) = rest.find('%') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        match after.find('%') {
+            Some(end) => {
+                let name = &after[..end];
+                out.push_str(&std::env::var(name).unwrap_or_default());
+                rest = &after[end + 1..];
+            }
+            None => {
+                out.push_str(&rest[start..]);
+                rest = "";
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Install folders Windows has on record for a program with this display name (per-user first).
+#[cfg(windows)]
+fn registry_install_dirs(name: &str) -> Vec<PathBuf> {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
+    let mut out = vec![];
+    for hive in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+        let Ok(root) = RegKey::predef(hive).open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Uninstall") else {
+            continue;
+        };
+        for key in root.enum_keys().flatten() {
+            let Ok(k) = root.open_subkey(&key) else { continue };
+            let display: String = k.get_value("DisplayName").unwrap_or_default();
+            if !display.eq_ignore_ascii_case(name) {
+                continue;
+            }
+            if let Ok(loc) = k.get_value::<String, _>("InstallLocation") {
+                if !loc.trim().is_empty() {
+                    out.push(PathBuf::from(loc.trim().trim_matches('"')));
+                }
+            }
+            if let Ok(un) = k.get_value::<String, _>("UninstallString") {
+                let path = un.trim().trim_start_matches('"');
+                let path = path.split('"').next().unwrap_or(path);
+                if let Some(parent) = Path::new(path).parent() {
+                    out.push(parent.to_path_buf());
+                }
+            }
+        }
+    }
+    out
 }
 
 #[cfg(not(windows))]
