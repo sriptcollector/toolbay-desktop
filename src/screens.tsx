@@ -241,7 +241,7 @@ function ToolGrid({ hub, tools }: { hub: Hub; tools?: Tool[] }) {
                 ) : t.forkedFrom ? (
                   <ForkedFrom hub={hub} from={t.forkedFrom} />
                 ) : t.inspiredBy ? (
-                  `Inspired by ${t.inspiredBy.name}`
+                  <Inspired tool={t} />
                 ) : (
                   t.category
                 )}
