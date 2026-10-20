@@ -3,8 +3,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Hub } from "./App";
 import { api, isTauri } from "./lib/api";
 import { formatSize, native, platform, uptime, type RunInfo } from "./lib/native";
-import type { Resolved, Review, Tool, User } from "./lib/types";
-import { Icon, Inspired, PrivacyChip, Stars, timeAgo } from "./components";
+import type { ForkSummary, Resolved, Review, Tool, User } from "./lib/types";
+import { ForkedFrom, Icon, Inspired, PrivacyChip, Stars, timeAgo } from "./components";
 
 const open = (url: string) => (isTauri ? openUrl(url) : window.open(url, "_blank"));
 
@@ -177,6 +177,7 @@ function Hero({ hub, tool, onTitle }: { hub: Hub; tool: Tool; onTitle?: () => vo
         </h1>
         <div className="hero-tagline">{tool.tagline}</div>
         <div className="hero-meta">
+          {tool.forkedFrom && <ForkedFrom hub={hub} from={tool.forkedFrom} />}
           <Inspired tool={tool} />
           <span className="chip">Free</span>
           <span className="chip">Open source · {tool.license}</span>
@@ -233,7 +234,17 @@ function ToolGrid({ hub, tools }: { hub: Hub; tools?: Tool[] }) {
             <div className="tile-body">
               <div className="tile-name">{t.name}</div>
               <div className="tile-sub">
-                {hub.isRunning(t.slug) ? "Running now" : installed ? "Installed" : t.inspiredBy ? `Inspired by ${t.inspiredBy.name}` : t.category}
+                {hub.isRunning(t.slug) ? (
+                  "Running now"
+                ) : installed ? (
+                  "Installed"
+                ) : t.forkedFrom ? (
+                  <ForkedFrom hub={hub} from={t.forkedFrom} />
+                ) : t.inspiredBy ? (
+                  `Inspired by ${t.inspiredBy.name}`
+                ) : (
+                  t.category
+                )}
               </div>
             </div>
           </button>
@@ -369,11 +380,117 @@ export function ToolDetail({ hub, slug }: { hub: Hub; slug: string }) {
         </>
       )}
 
+      <Forks hub={hub} tool={tool} />
+
       <Reviews hub={hub} slug={slug} />
 
       {tool.inspiredBy && (
         <div className="disclaimer">
           Independent open-source project, not affiliated with or endorsed by {tool.inspiredBy.company}.
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---------------- Forks ----------------
+
+const isGitHubRepo = (url: string) => /^https:\/\/github\.com\/[^/]+\/[^/]+/.test(url);
+
+function Forks({ hub, tool }: { hub: Hub; tool: Tool }) {
+  const [data, setData] = useState<{ count: number; forks: ForkSummary[] }>({ count: 0, forks: [] });
+  const [waiting, setWaiting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api.forks(tool.slug).then((r) => setData(r.data));
+  }, [tool.slug]);
+
+  // After GitHub's fork page: check every 4.5 s (up to 10 min) until Toolbay sees the fork.
+  useEffect(() => {
+    if (!waiting) return;
+    const started = Date.now();
+    const id = window.setInterval(async () => {
+      if (Date.now() - started > 10 * 60 * 1000) {
+        setWaiting(false);
+        return;
+      }
+      try {
+        const { project } = await api.claimFork(tool.slug);
+        if (project) {
+          setWaiting(false);
+          hub.toast("Your fork is building. You'll find it in My projects.");
+          hub.go({ page: "projects" });
+        }
+      } catch {
+        /* keep waiting */
+      }
+    }, 4500);
+    return () => window.clearInterval(id);
+  }, [waiting, tool.slug, hub]);
+
+  const canFork = isGitHubRepo(tool.repoUrl) && tool.status !== "coming_soon";
+  const fork = async () => {
+    if (!hub.user) return hub.signIn();
+    setBusy(true);
+    try {
+      const r = await api.fork(tool.slug);
+      if (r.mode === "done") {
+        hub.toast("Your fork is building. You'll find it in My projects.");
+        hub.go({ page: "projects" });
+      } else {
+        await open(r.mode === "app" ? `https://toolbay.ai${r.url}` : r.url);
+        setWaiting(true);
+      }
+    } catch (e) {
+      hub.toast(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!canFork && data.count === 0) return null;
+  return (
+    <>
+      <h2>Forks</h2>
+      {canFork && (
+        <div className="row">
+          <button className="btn" disabled={busy || waiting} onClick={fork}>
+            Fork{data.count > 0 && <span className="fork-count">{data.count}</span>}
+          </button>
+          <span className="small muted">
+            Make your own copy of {tool.name} to change and share. The credit to the original stays on it.
+          </span>
+        </div>
+      )}
+      {waiting && (
+        <div className="notice">
+          <div className="grow">
+            <div className="title">On GitHub, press "Create fork", then come back.</div>
+            <div className="small muted">Toolbay will pick it up and start building your copy.</div>
+          </div>
+          <button className="btn" onClick={() => setWaiting(false)}>
+            Cancel
+          </button>
+        </div>
+      )}
+      {data.forks.length > 0 && (
+        <div className="panel" style={{ marginTop: 12 }}>
+          {data.forks.map((f) => (
+            <div
+              className="list-row clickable"
+              key={f.slug}
+              onClick={() =>
+                hub.tools.some((t) => t.slug === f.slug) ? hub.go({ page: "tools", slug: f.slug }) : open(f.repoUrl)
+              }
+            >
+              <div className="grow">
+                <div className="title">{f.name}</div>
+                <div className="small muted">
+                  by @{f.author.handle} · {timeAgo(f.createdAt)}
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </>
@@ -509,10 +626,15 @@ export function RunningPage({ hub }: { hub: Hub }) {
 // ---------------- Library ----------------
 
 export function LibraryPage({ hub }: { hub: Hub }) {
-  const mine = hub.tools.filter((t) => hub.library.some((l) => l.slug === t.slug));
+  const mine = [...hub.tools, ...hub.projectTools].filter((t) => hub.library.some((l) => l.slug === t.slug));
   return (
     <>
-      <h1>Library</h1>
+      <div className="page-head">
+        <h1>Library</h1>
+        <button className="btn" onClick={() => hub.go({ page: "projects" })}>
+          Upload project
+        </button>
+      </div>
       <p className="lede">Everything you've installed. Updates happen by themselves.</p>
       {hub.library.length === 0 ? (
         <div className="empty">
@@ -529,7 +651,7 @@ export function LibraryPage({ hub }: { hub: Hub }) {
               <div className="list-row clickable" key={l.slug} onClick={() => hub.go({ page: "tools", slug: l.slug })}>
                 {t ? <Icon tool={t} /> : <div className="icon">{l.name.charAt(0)}</div>}
                 <div className="grow">
-                  <div className="title">{l.name}</div>
+                  <div className="title">{t?.name ?? l.name}</div>
                   <div className="small muted">
                     {hub.isRunning(l.slug) ? "Running now" : `Version ${l.version}`}
                   </div>

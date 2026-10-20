@@ -101,6 +101,11 @@ pub fn handle_deep_link(app: &AppHandle, raw: &str) {
                 }
             });
         }
+        // toolbay://project/<id> (the website's "Install in Toolbay" on an uploaded project)
+        "project" | "projects" => {
+            let id = segments.first().cloned().unwrap_or_default();
+            app.emit("open-route", serde_json::json!({ "kind": "project", "slug": id })).ok();
+        }
         // toolbay://open/tools/<slug> (the website's "Open in the app"), toolbay://tool/<slug>
         "open" | "tool" | "tools" => {
             let slug = if host == "open" { segments.get(1) } else { segments.first() };

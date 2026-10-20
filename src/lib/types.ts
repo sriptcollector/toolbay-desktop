@@ -37,6 +37,8 @@ export interface Tool {
   status?: "coming_soon" | "beta" | "live";
   /** The product this is an open-source take on. Shown as "Inspired by <name>". */
   inspiredBy?: { name: string; company: string; logoUrl?: string | null } | null;
+  /** Set when this tool is a fork of another tool on Toolbay. The credit is permanent. */
+  forkedFrom?: { toolSlug: string; builderHandle: string } | null;
   /** Where the hub installs from. Defaults to the GitHub repo in repoUrl. */
   install?: { type: "github"; repo: string } | { type: "manifest"; url: string };
 }
@@ -89,4 +91,13 @@ export interface Resolved {
   entry: { kind: string; size?: number };
   downloadUrl: string;
   releaseTag: string | null;
+}
+
+export interface ForkSummary {
+  slug: string;
+  name: string;
+  author: Author;
+  repoUrl: string;
+  url: string;
+  createdAt: string;
 }

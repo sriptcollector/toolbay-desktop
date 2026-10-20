@@ -3,7 +3,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import toolsFixture from "../fixtures/tools.json";
 import postsFixture from "../fixtures/posts.json";
-import type { Post, Review, Tool } from "./types";
+import type { ForkSummary, Post, Review, Tool } from "./types";
+import type { Project } from "./projects";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -71,4 +72,33 @@ export const api = {
     request<{ review: Review }>("POST", `/api/v1/tools/${slug}/reviews`, { rating, body }),
   posts: () => withFallback<Post[]>("/api/v1/community/posts", postsFixture.posts as Post[], (j) => j.posts),
   createPost: (body: string) => request<{ post: Post }>("POST", "/api/v1/community/posts", { body }),
+  forks: (slug: string) =>
+    withFallback<{ count: number; forks: ForkSummary[] }>(`/api/v1/tools/${slug}/forks`, { count: 0, forks: [] }, (j) =>
+      typeof j.count === "number" ? j : undefined,
+    ),
+  fork: (slug: string) => callApi<ForkStart>("POST", `/api/v1/tools/${slug}/fork`),
+  claimFork: (slug: string) => callApi<{ project: Project | null }>("POST", `/api/v1/tools/${slug}/fork/claim`),
 };
+
+export type ForkStart =
+  | { mode: "done"; project: Project }
+  | { mode: "github"; url: string }
+  | { mode: "app"; url: string };
+
+/** Like request(), but turns the API's plain-words {error} into the thrown message. */
+async function callApi<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await invoke<RawResponse>("api_request", {
+    method,
+    path,
+    body: body === undefined ? null : JSON.stringify(body),
+  });
+  let json: any = null;
+  try {
+    json = JSON.parse(res.body);
+  } catch {
+    throw new Error("Couldn't reach toolbay.ai. Check your internet connection and try again.");
+  }
+  if (res.status === 401) throw new Error("Sign in first, then try again.");
+  if (res.status < 200 || res.status >= 300) throw new Error(json?.error || "That didn't work. Try again.");
+  return json as T;
+}

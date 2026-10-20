@@ -5,8 +5,10 @@ import type { InstalledTool, Post, Tool, User } from "./lib/types";
 import { NavIcon } from "./components";
 import logo from "./assets/logo.png";
 import { CommunityPage, HomePage, LibraryPage, RunningPage, SettingsPage, ToolDetail, ToolsPage } from "./screens";
+import { ProjectsPage, readyTools } from "./projects";
+import { projectsApi } from "./lib/projects";
 
-export type Page = "home" | "running" | "tools" | "community" | "library" | "settings";
+export type Page = "home" | "running" | "tools" | "community" | "library" | "settings" | "projects";
 export interface Route {
   page: Page;
   slug?: string;
@@ -14,6 +16,9 @@ export interface Route {
 
 export interface Hub {
   tools: Tool[];
+  /** Your uploaded projects that are ready, as Tools (see projects.tsx). */
+  projectTools: Tool[];
+  setProjectTools: (t: Tool[]) => void;
   posts: Post[];
   library: InstalledTool[];
   running: RunInfo[];
@@ -78,6 +83,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(tools.length > 0);
   const [busy, setBusy] = useState<Hub["busy"]>({});
   const [posts, setPosts] = useState<Post[]>([]);
+  const [projectTools, setProjectTools] = useState<Tool[]>([]);
   const [library, setLibrary] = useState<InstalledTool[]>([]);
   const [running, setRunning] = useState<RunInfo[]>([]);
   const [user, setUser] = useState<User | null>(null);
@@ -127,13 +133,22 @@ export default function App() {
         if (u) toast(`You're signed in as ${u.name || u.handle}.`);
       }),
       native.onError(toast),
-      native.onRoute((r) => setRoute({ page: "tools", slug: r.slug })),
+      native.onRoute((r) => setRoute(r.kind === "project" ? { page: "projects" } : { page: "tools", slug: r.slug })),
     ];
     return () => {
       window.clearInterval(catalogTimer);
       subs.forEach((p) => p.then((un) => un()));
     };
   }, [refreshLibrary, toast]);
+
+  // Ready uploaded projects, so Library can show and open the ones you've installed.
+  useEffect(() => {
+    if (!user || !isTauri) return setProjectTools([]);
+    projectsApi
+      .all()
+      .then((ps) => setProjectTools(readyTools(ps)))
+      .catch(() => {});
+  }, [user]);
 
   // Run an Open/Hide/Close, showing it as in progress until it finishes.
   const act = useCallback(
@@ -153,6 +168,8 @@ export default function App() {
   const hub: Hub = useMemo(
     () => ({
       tools,
+      projectTools,
+      setProjectTools,
       posts,
       library,
       running,
@@ -193,12 +210,13 @@ export default function App() {
       hide: (t) => act(t, "hiding", () => native.hide(t.slug)),
       close: (t) => act(t, "closing", () => native.close(t.slug)),
     }),
-    [tools, posts, library, running, user, live, loaded, busy, progress, justInstalled, toast, refreshPosts, refreshLibrary, act],
+    [tools, projectTools, posts, library, running, user, live, loaded, busy, progress, justInstalled, toast, refreshPosts, refreshLibrary, act],
   );
 
   let body: React.ReactNode;
   if (route.page === "tools" && route.slug) body = <ToolDetail hub={hub} slug={route.slug} />;
   else if (route.page === "tools") body = <ToolsPage hub={hub} />;
+  else if (route.page === "projects") body = <ProjectsPage hub={hub} />;
   else if (route.page === "running") body = <RunningPage hub={hub} />;
   else if (route.page === "community") body = <CommunityPage hub={hub} />;
   else if (route.page === "library") body = <LibraryPage hub={hub} />;
@@ -215,7 +233,7 @@ export default function App() {
         {NAV.map((n) => (
           <button
             key={n.page}
-            className={`nav-item ${route.page === n.page ? "active" : ""}`}
+            className={`nav-item ${route.page === n.page || (n.page === "library" && route.page === "projects") ? "active" : ""}`}
             onClick={() => setRoute({ page: n.page })}
           >
             <NavIcon name={n.page} />

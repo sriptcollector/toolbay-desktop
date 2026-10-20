@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Privacy, Tool } from "./lib/types";
+import type { Hub } from "./App";
 
 export function Icon({ tool, className = "icon" }: { tool: Pick<Tool, "name" | "iconUrl">; className?: string }) {
   const [failed, setFailed] = useState(false);
@@ -74,4 +75,24 @@ export function timeAgo(iso: string) {
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+/** "Forked from <tool> by @<builder>", linking to the original tool's page. */
+export function ForkedFrom({ hub, from }: { hub: Hub; from: { toolSlug: string; builderHandle: string } }) {
+  const original = hub.tools.find((t) => t.slug === from.toolSlug);
+  return (
+    <span className="inspired">
+      Forked from{" "}
+      <button
+        className="link"
+        onClick={(e) => {
+          e.stopPropagation();
+          hub.go({ page: "tools", slug: from.toolSlug });
+        }}
+      >
+        {original?.name ?? from.toolSlug}
+      </button>{" "}
+      by @{from.builderHandle}
+    </span>
+  );
 }
