@@ -36,7 +36,7 @@ export interface Tool {
   author: Author;
   status?: "coming_soon" | "beta" | "live";
   /** The product this is an open-source take on. Shown as "Inspired by <name>". */
-  inspiredBy?: { name: string; company: string } | null;
+  inspiredBy?: { name: string; company: string; logoUrl?: string | null } | null;
   /** Where the hub installs from. Defaults to the GitHub repo in repoUrl. */
   install?: { type: "github"; repo: string } | { type: "manifest"; url: string };
 }

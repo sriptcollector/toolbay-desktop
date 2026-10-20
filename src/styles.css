@@ -105,7 +105,12 @@ h2 { font-size: 13px; font-family: var(--mono); font-weight: 400; text-transform
 .hero-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; align-items: center; }
 .hero-action { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; min-width: 220px; }
 
-.inspired { font-size: 13px; color: var(--muted); }
+.inspired { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.inspired img { height: 16px; width: auto; }
+.run-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.run-buttons { display: flex; gap: 8px; }
+.btn.small { padding: 6px 12px; font-size: 13px; }
+.nav-count.live { color: var(--premium-bright); display: inline-flex; align-items: center; gap: 5px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; background: var(--chip); color: var(--body); font-size: 12px; font-family: var(--mono); white-space: nowrap; }
 .chip.ok { background: var(--premium-tint); color: var(--premium-bright); }
 .chip.warn { background: #2a2414; color: #e5c76b; }

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, isTauri } from "./lib/api";
-import { native, type Progress } from "./lib/native";
+import { api, bundledTools, isTauri } from "./lib/api";
+import { native, type Progress, type RunInfo } from "./lib/native";
 import type { InstalledTool, Post, Tool, User } from "./lib/types";
 import { NavIcon } from "./components";
 import logo from "./assets/logo.png";
-import { CommunityPage, HomePage, LibraryPage, SettingsPage, ToolDetail, ToolsPage } from "./screens";
+import { CommunityPage, HomePage, LibraryPage, RunningPage, SettingsPage, ToolDetail, ToolsPage } from "./screens";
 
-export type Page = "home" | "tools" | "community" | "library" | "settings";
+export type Page = "home" | "running" | "tools" | "community" | "library" | "settings";
 export interface Route {
   page: Page;
   slug?: string;
@@ -16,9 +16,14 @@ export interface Hub {
   tools: Tool[];
   posts: Post[];
   library: InstalledTool[];
-  running: string[];
+  running: RunInfo[];
+  isRunning: (slug: string) => RunInfo | undefined;
   user: User | null;
   live: boolean;
+  /** The catalog has loaded at least once (from the network or the last-run cache). */
+  loaded: boolean;
+  /** Per tool: an Open/Hide/Close in flight. */
+  busy: Record<string, "opening" | "hiding" | "closing">;
   progress: Record<string, Progress>;
   /** Slug of a tool that just finished installing (to offer a desktop shortcut). */
   justInstalled: string | null;
@@ -27,13 +32,17 @@ export interface Hub {
   toast: (m: string) => void;
   install: (t: Tool) => Promise<void>;
   uninstall: (t: Tool) => Promise<void>;
-  launch: (t: Tool) => Promise<void>;
+  open: (t: Tool) => Promise<void>;
+  hide: (t: Tool) => Promise<void>;
+  close: (t: Tool) => Promise<void>;
   refreshPosts: () => Promise<void>;
+  addPost: (p: Post) => void;
   signIn: () => void;
 }
 
 const NAV: { page: Page; label: string }[] = [
   { page: "home", label: "Home" },
+  { page: "running", label: "Running now" },
   { page: "tools", label: "Tools" },
   { page: "library", label: "Library" },
   { page: "community", label: "Community" },
@@ -56,10 +65,21 @@ async function updateHubQuietly() {
 
 export default function App() {
   const [route, setRoute] = useState<Route>({ page: "home" });
-  const [tools, setTools] = useState<Tool[]>([]);
+  // First paint: last run's catalog, or the one bundled with the app; the live one replaces it.
+  const [tools, setTools] = useState<Tool[]>(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem("catalog") ?? "[]");
+      if (Array.isArray(cached) && cached.length) return cached;
+    } catch {
+      /* fall through */
+    }
+    return bundledTools();
+  });
+  const [loaded, setLoaded] = useState(tools.length > 0);
+  const [busy, setBusy] = useState<Hub["busy"]>({});
   const [posts, setPosts] = useState<Post[]>([]);
   const [library, setLibrary] = useState<InstalledTool[]>([]);
-  const [running, setRunning] = useState<string[]>([]);
+  const [running, setRunning] = useState<RunInfo[]>([]);
   const [user, setUser] = useState<User | null>(null);
   const [live, setLive] = useState(true);
   const [progress, setProgress] = useState<Record<string, Progress>>({});
@@ -74,11 +94,17 @@ export default function App() {
   const refreshPosts = useCallback(async () => setPosts((await api.posts()).data), []);
 
   useEffect(() => {
-    Promise.all([api.tools(), api.posts()]).then(([t, p]) => {
-      setTools(t.data);
-      setPosts(p.data);
-      setLive(t.live);
-    });
+    // Show the last catalog instantly; refresh it now and every 10 minutes.
+    const loadCatalog = () =>
+      api.tools().then((t) => {
+        if (t.live) setTools(t.data);
+        if (t.live) localStorage.setItem("catalog", JSON.stringify(t.data));
+        setLive(t.live);
+        setLoaded(true);
+      });
+    loadCatalog();
+    const catalogTimer = window.setInterval(loadCatalog, 10 * 60 * 1000);
+    api.posts().then((p) => setPosts(p.data));
     refreshLibrary();
     native.running().then(setRunning);
     if (isTauri) updateHubQuietly();
@@ -93,9 +119,7 @@ export default function App() {
           return { ...cur, [p.slug]: p };
         }),
       ),
-      native.onRunning(({ slug, running }) =>
-        setRunning((cur) => (running ? [...new Set([...cur, slug])] : cur.filter((s) => s !== slug))),
-      ),
+      native.onRunning(setRunning),
       native.onLibrary(refreshLibrary),
       native.onUpdated((u) => toast(`${u.name} was updated to ${u.version}.`)),
       native.onAuth((u) => {
@@ -106,9 +130,25 @@ export default function App() {
       native.onRoute((r) => setRoute({ page: "tools", slug: r.slug })),
     ];
     return () => {
+      window.clearInterval(catalogTimer);
       subs.forEach((p) => p.then((un) => un()));
     };
   }, [refreshLibrary, toast]);
+
+  // Run an Open/Hide/Close, showing it as in progress until it finishes.
+  const act = useCallback(
+    async (t: Tool, what: Hub["busy"][string], fn: () => Promise<void>) => {
+      setBusy((b) => ({ ...b, [t.slug]: what }));
+      try {
+        await fn();
+      } catch (e) {
+        toast(String(e));
+      } finally {
+        window.setTimeout(() => setBusy(({ [t.slug]: _, ...rest }) => rest), what === "opening" ? 1200 : 0);
+      }
+    },
+    [toast],
+  );
 
   const hub: Hub = useMemo(
     () => ({
@@ -116,14 +156,18 @@ export default function App() {
       posts,
       library,
       running,
+      isRunning: (slug) => running.find((r) => r.slug === slug),
       user,
       live,
+      loaded,
+      busy,
       progress,
       justInstalled,
       setJustInstalled,
       go: setRoute,
       toast,
       refreshPosts,
+      addPost: (p) => setPosts((cur) => [p, ...cur.filter((x) => x.id !== p.id)]),
       signIn: () => native.signIn().catch((e) => toast(String(e))),
       install: async (t) => {
         if (!isTauri) return;
@@ -145,20 +189,17 @@ export default function App() {
           toast(String(e));
         }
       },
-      launch: async (t) => {
-        try {
-          await native.launch(t.slug);
-        } catch (e) {
-          toast(String(e));
-        }
-      },
+      open: (t) => act(t, "opening", () => native.open(t.slug)),
+      hide: (t) => act(t, "hiding", () => native.hide(t.slug)),
+      close: (t) => act(t, "closing", () => native.close(t.slug)),
     }),
-    [tools, posts, library, running, user, live, progress, justInstalled, toast, refreshPosts, refreshLibrary],
+    [tools, posts, library, running, user, live, loaded, busy, progress, justInstalled, toast, refreshPosts, refreshLibrary, act],
   );
 
   let body: React.ReactNode;
   if (route.page === "tools" && route.slug) body = <ToolDetail hub={hub} slug={route.slug} />;
   else if (route.page === "tools") body = <ToolsPage hub={hub} />;
+  else if (route.page === "running") body = <RunningPage hub={hub} />;
   else if (route.page === "community") body = <CommunityPage hub={hub} />;
   else if (route.page === "library") body = <LibraryPage hub={hub} />;
   else if (route.page === "settings") body = <SettingsPage hub={hub} setUser={setUser} />;
@@ -180,6 +221,11 @@ export default function App() {
             <NavIcon name={n.page} />
             {n.label}
             {n.page === "library" && library.length > 0 && <span className="nav-count">{library.length}</span>}
+            {n.page === "running" && running.length > 0 && (
+              <span className="nav-count live">
+                <span className="dot" /> {running.length}
+              </span>
+            )}
           </button>
         ))}
         <div className="spacer" />

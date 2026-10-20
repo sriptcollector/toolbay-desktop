@@ -67,11 +67,15 @@ pub struct InstalledTool {
     /// Program (or .app on macOS) to start.
     pub exe: String,
     pub launch_args: Vec<String>,
+    /// Args that make a running instance quit cleanly (empty: ask its windows to close).
+    pub quit_args: Vec<String>,
     /// Uninstaller to run before removing the folder (NSIS/MSI).
     pub uninstaller: Option<String>,
     /// Extra files (models, ...) placed in the tool's own data dir; removed on uninstall.
     pub files: Vec<String>,
     pub shortcut: Option<String>,
+    /// The tool's own app identifier (its data folder name), if it has one.
+    pub identifier: Option<String>,
     pub installed_at: String,
 }
 

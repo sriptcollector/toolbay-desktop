@@ -51,6 +51,9 @@ function normalize(t: Tool & { replaces?: string | null }): Tool {
   return { ...t, inspiredBy, iconUrl, screenshots: t.screenshots ?? [], platforms: t.platforms ?? [] };
 }
 
+/** The catalog shipped inside the app, for an instant first screen. */
+export const bundledTools = () => (toolsFixture.tools as Tool[]).map(normalize);
+
 export const api = {
   tools: () =>
     withFallback<Tool[]>("/api/v1/tools", (toolsFixture.tools as Tool[]).map(normalize), (j) =>

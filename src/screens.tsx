@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Hub } from "./App";
 import { api, isTauri } from "./lib/api";
-import { formatSize, native, platform } from "./lib/native";
+import { formatSize, native, platform, uptime, type RunInfo } from "./lib/native";
 import type { Resolved, Review, Tool, User } from "./lib/types";
 import { Icon, Inspired, PrivacyChip, Stars, timeAgo } from "./components";
 
@@ -29,12 +29,43 @@ function totalSize(r: Resolved | null | undefined) {
   return r.entry.size + r.manifest.files.reduce((a, f) => a + (f.size ?? 0), 0);
 }
 
+/** Re-render every 30 s so uptimes stay current. */
+function useTick(ms = 30000) {
+  const [, set] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => set((n) => n + 1), ms);
+    return () => window.clearInterval(id);
+  }, [ms]);
+}
+
+/** "Running · 12 min" plus Hide and Close, for a tool that's running. */
+function RunControls({ hub, tool, run }: { hub: Hub; tool: Tool; run: RunInfo }) {
+  useTick();
+  return (
+    <div className="run-controls">
+      <span className="running">
+        <span className="dot" /> {run.window === "hidden" ? "Running in the background" : "Running"} · {uptime(run.startedAt)}
+      </span>
+      <span className="run-buttons">
+        {run.window !== "hidden" && (
+          <button className="btn small" disabled={!!hub.busy[tool.slug]} onClick={() => hub.hide(tool)}>
+            Hide
+          </button>
+        )}
+        <button className="btn small" disabled={!!hub.busy[tool.slug]} onClick={() => hub.close(tool)}>
+          {hub.busy[tool.slug] === "closing" ? "Closing…" : "Close"}
+        </button>
+      </span>
+    </div>
+  );
+}
+
 // ---------------- The one big button: Install / progress / Open ----------------
 
 function ActionButton({ hub, tool, big }: { hub: Hub; tool: Tool; big?: boolean }) {
   const r = useResolved(tool);
   const installed = hub.library.find((l) => l.slug === tool.slug);
-  const isRunning = hub.running.includes(tool.slug);
+  const run = hub.isRunning(tool.slug);
   const p = hub.progress[tool.slug];
   const cls = `btn primary ${big ? "big" : ""}`;
 
@@ -67,14 +98,10 @@ function ActionButton({ hub, tool, big }: { hub: Hub; tool: Tool; big?: boolean 
   if (installed) {
     return (
       <>
-        <button className={cls} onClick={() => hub.launch(tool)}>
-          Open
+        <button className={cls} disabled={!!hub.busy[tool.slug]} onClick={() => hub.open(tool)}>
+          {hub.busy[tool.slug] === "opening" ? "Opening…" : "Open"}
         </button>
-        {isRunning && (
-          <span className="running">
-            <span className="dot" /> Running
-          </span>
-        )}
+        {run && <RunControls hub={hub} tool={tool} run={run} />}
       </>
     );
   }
@@ -167,11 +194,19 @@ function Hero({ hub, tool, onTitle }: { hub: Hub; tool: Tool; onTitle?: () => vo
 
 export function HomePage({ hub }: { hub: Hub }) {
   const featured = hub.tools[0];
+  if (!hub.loaded && !featured) return <div className="empty">Loading tools…</div>;
   const first = hub.user?.name?.split(" ")[0];
   return (
     <>
       <h1>{first ? `Welcome back, ${first}.` : "Welcome to Toolbay."}</h1>
       <p className="lede">Free, open-source apps. One click to install, and they keep themselves up to date.</p>
+      {hub.running.length > 0 && (
+        <>
+          <h2 style={{ marginTop: 0 }}>Running now</h2>
+          <RunningList hub={hub} />
+          <h2>Featured</h2>
+        </>
+      )}
       {featured && (
         <>
           <Hero hub={hub} tool={featured} onTitle={() => hub.go({ page: "tools", slug: featured.slug })} />
@@ -198,7 +233,7 @@ function ToolGrid({ hub, tools }: { hub: Hub; tools?: Tool[] }) {
             <div className="tile-body">
               <div className="tile-name">{t.name}</div>
               <div className="tile-sub">
-                {hub.running.includes(t.slug) ? "Running" : installed ? "Installed" : t.inspiredBy ? `Inspired by ${t.inspiredBy.name}` : t.category}
+                {hub.isRunning(t.slug) ? "Running now" : installed ? "Installed" : t.inspiredBy ? `Inspired by ${t.inspiredBy.name}` : t.category}
               </div>
             </div>
           </button>
@@ -229,6 +264,7 @@ export function ToolsPage({ hub }: { hub: Hub }) {
 // ---------------- Tool page ----------------
 
 export function ToolDetail({ hub, slug }: { hub: Hub; slug: string }) {
+  const [confirming, setConfirming] = useState(false);
   const tool = hub.tools.find((t) => t.slug === slug);
   if (!tool) return <div className="empty">Loading…</div>;
   const installed = hub.library.find((l) => l.slug === slug);
@@ -311,9 +347,21 @@ export function ToolDetail({ hub, slug }: { hub: Hub; slug: string }) {
             <button className="btn" onClick={() => hub.install(tool)} disabled={!!hub.progress[slug]}>
               Reinstall
             </button>
-            <button className="btn danger" onClick={() => hub.uninstall(tool)}>
-              Uninstall
-            </button>
+            {confirming ? (
+              <>
+                <span className="small muted">Remove {tool.name} from this computer?</span>
+                <button className="btn danger" onClick={() => hub.uninstall(tool)}>
+                  Yes, uninstall
+                </button>
+                <button className="btn" onClick={() => setConfirming(false)}>
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button className="btn danger" onClick={() => setConfirming(true)}>
+                Uninstall
+              </button>
+            )}
           </div>
           <div className="small muted" style={{ marginTop: 8 }}>
             Updates install by themselves when {tool.name} isn't open.
@@ -399,6 +447,65 @@ function Reviews({ hub, slug }: { hub: Hub; slug: string }) {
   );
 }
 
+// ---------------- Running now ----------------
+
+function RunningList({ hub }: { hub: Hub }) {
+  useTick();
+  return (
+    <div className="panel">
+      {hub.running.map((r) => {
+        const t = hub.tools.find((x) => x.slug === r.slug);
+        return (
+          <div className="list-row" key={r.slug}>
+            {t ? <Icon tool={t} /> : <div className="icon">{r.name.charAt(0)}</div>}
+            <div className="grow">
+              <div className="title">{r.name}</div>
+              <div className="running small">
+                <span className="dot" /> {r.window === "hidden" ? "Running in the background" : "Running"} ·{" "}
+                {uptime(r.startedAt)}
+              </div>
+            </div>
+            {t && (
+              <div className="row" style={{ gap: 8 }}>
+                <button className="btn primary" disabled={!!hub.busy[t.slug]} onClick={() => hub.open(t)}>
+                  {hub.busy[t.slug] === "opening" ? "Opening…" : "Open"}
+                </button>
+                {r.window !== "hidden" && (
+                  <button className="btn" disabled={!!hub.busy[t.slug]} onClick={() => hub.hide(t)}>
+                    Hide
+                  </button>
+                )}
+                <button className="btn" disabled={!!hub.busy[t.slug]} onClick={() => hub.close(t)}>
+                  {hub.busy[t.slug] === "closing" ? "Closing…" : "Close"}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function RunningPage({ hub }: { hub: Hub }) {
+  return (
+    <>
+      <h1>Running now</h1>
+      <p className="lede">Tools that are open right now. Hide keeps a tool running in the background.</p>
+      {hub.running.length === 0 ? (
+        <div className="empty">
+          Nothing is running.{" "}
+          <button className="link" onClick={() => hub.go({ page: "library" })}>
+            Open something from your library
+          </button>
+        </div>
+      ) : (
+        <RunningList hub={hub} />
+      )}
+    </>
+  );
+}
+
 // ---------------- Library ----------------
 
 export function LibraryPage({ hub }: { hub: Hub }) {
@@ -424,7 +531,7 @@ export function LibraryPage({ hub }: { hub: Hub }) {
                 <div className="grow">
                   <div className="title">{l.name}</div>
                   <div className="small muted">
-                    {hub.running.includes(l.slug) ? "Running" : `Version ${l.version}`}
+                    {hub.isRunning(l.slug) ? "Running now" : `Version ${l.version}`}
                   </div>
                 </div>
                 <div onClick={(e) => e.stopPropagation()}>
@@ -441,30 +548,58 @@ export function LibraryPage({ hub }: { hub: Hub }) {
 
 // ---------------- Community ----------------
 
+interface PendingPost {
+  tempId: string;
+  body: string;
+  createdAt: string;
+  failed: boolean;
+}
+
 export function CommunityPage({ hub }: { hub: Hub }) {
   const [body, setBody] = useState("");
-  const [busy, setBusy] = useState(false);
-  const submit = async () => {
-    setBusy(true);
+  const [pending, setPending] = useState<PendingPost[]>([]);
+
+  // Optimistic: show it at once, save in the background, keep it with Retry if saving fails.
+  const save = async (p: PendingPost) => {
+    setPending((cur) => cur.map((x) => (x.tempId === p.tempId ? { ...x, failed: false } : x)));
     try {
-      await api.createPost(body.trim());
-      setBody("");
-      await hub.refreshPosts();
+      const { post } = await api.createPost(p.body);
+      setPending((cur) => cur.filter((x) => x.tempId !== p.tempId));
+      hub.addPost(post);
     } catch {
-      hub.toast("Your post didn't go through. Check your internet connection and try again.");
-    } finally {
-      setBusy(false);
+      setPending((cur) => cur.map((x) => (x.tempId === p.tempId ? { ...x, failed: true } : x)));
     }
   };
+  const submit = () => {
+    const text = body.trim();
+    if (!text) return;
+    const p = { tempId: `tmp-${Date.now()}`, body: text, createdAt: new Date().toISOString(), failed: false };
+    setPending((cur) => [p, ...cur]);
+    setBody("");
+    save(p);
+  };
+  const me = hub.user;
   return (
     <>
       <h1>Community</h1>
       <p className="lede">Tips, questions and what people are making with their tools.</p>
-      {hub.user ? (
+      {me ? (
         <div className="composer">
-          <textarea placeholder="Share something…" value={body} onChange={(e) => setBody(e.target.value)} />
-          <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn primary" disabled={!body.trim() || busy} onClick={submit}>
+          <textarea
+            autoFocus
+            placeholder="Share something…"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+          />
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <span className="small muted">Shift+Enter to post</span>
+            <button className="btn primary" disabled={!body.trim()} onClick={submit}>
               Post
             </button>
           </div>
@@ -478,6 +613,24 @@ export function CommunityPage({ hub }: { hub: Hub }) {
         </div>
       )}
       <div style={{ marginTop: 16 }}>
+        {me &&
+          pending.map((p) => (
+            <div className="post" key={p.tempId} style={{ opacity: p.failed ? 1 : 0.7 }}>
+              <div className="meta">
+                <div className="avatar">{(me.name || me.handle).charAt(0)}</div>
+                <span style={{ color: "var(--text)", fontWeight: 600 }}>{me.name || me.handle}</span>
+                <span>· {p.failed ? "didn't post" : "posting…"}</span>
+                {p.failed && (
+                  <button className="link" onClick={() => save(p)}>
+                    Retry
+                  </button>
+                )}
+              </div>
+              <div className="prose" style={{ fontSize: 15, lineHeight: "22px" }}>
+                {p.body}
+              </div>
+            </div>
+          ))}
         {hub.posts.map((p) => (
           <div className="post" key={p.id}>
             <div className="meta">
@@ -499,7 +652,9 @@ export function CommunityPage({ hub }: { hub: Hub }) {
             )}
           </div>
         ))}
-        {hub.posts.length === 0 && <div className="empty">No posts yet. Be the first to say hello.</div>}
+        {hub.posts.length === 0 && pending.length === 0 && (
+          <div className="empty">No posts yet. Be the first to say hello.</div>
+        )}
       </div>
     </>
   );

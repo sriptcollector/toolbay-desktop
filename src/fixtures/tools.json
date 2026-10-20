@@ -3,24 +3,48 @@
     {
       "slug": "toolbay-flow",
       "name": "Toolbay Flow",
-      "tagline": "Talk, and your words appear wherever you're typing.",
-      "description": "Hold a key, say what you want to write, and let go. Toolbay Flow turns your voice into clean text in any app: email, chat, documents, the browser. It runs on your own computer, so what you say stays private, and it works without an account.",
+      "tagline": "Free, local voice dictation in any app",
+      "description": "Hold a key, speak, let go: clean, punctuated text appears wherever your cursor is. Speech recognition (whisper.cpp) and cleanup (llama.cpp, Qwen3) run on your computer. No account, no word limits, no telemetry.\n\nThe Windows version is the most tested. The Mac version is brand new, so tell us in the community if anything is off.",
       "iconUrl": "/tools/toolbay-flow.png",
       "screenshots": [],
-      "category": "Productivity",
+      "category": "Writing",
       "repoUrl": "https://github.com/sriptcollector/toolbay-flow",
       "license": "MIT",
       "version": "0.1.0",
-      "platforms": ["win", "mac"],
+      "platforms": [
+        "mac",
+        "win"
+      ],
+      "downloads": {
+        "mac": "https://github.com/sriptcollector/toolbay-flow/releases/download/v0.1.0/Toolbay.Flow_0.1.0_aarch64.dmg",
+        "win": "https://github.com/sriptcollector/toolbay-flow/releases/download/v0.1.0/Toolbay.Flow_0.1.0_x64-setup.exe"
+      },
       "priceCents": 0,
       "openSource": true,
-      "privacy": { "status": "pending", "checkedAt": null, "summary": "Runs on your computer. The privacy check hasn't been run yet." },
+      "privacy": {
+        "status": "pending",
+        "checkedAt": null,
+        "summary": "Not independently reviewed yet. The developer says: runs fully offline after a one-time model download; no account, no servers, no analytics; optional bring-your-own-key cloud cleanup is off by default."
+      },
       "rating": null,
       "reviewCount": 0,
-      "author": { "name": "Toolbay", "handle": "toolbay" },
-      "status": "coming_soon",
-      "inspiredBy": { "name": "Wispr Flow", "company": "Wispr" },
-      "install": { "type": "github", "repo": "sriptcollector/toolbay-flow" }
+      "author": {
+        "name": "Orion Jones",
+        "handle": "orion"
+      },
+      "status": "live",
+      "replaces": null,
+      "inspiredBy": {
+        "name": "Wispr Flow",
+        "company": "Wispr",
+        "logoUrl": null
+      },
+      "kind": "app",
+      "install": {
+        "type": "github",
+        "repo": "sriptcollector/toolbay-flow"
+      },
+      "url": "https://toolbay.ai/tools/toolbay-flow"
     }
   ]
 }

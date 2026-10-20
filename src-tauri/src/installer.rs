@@ -12,7 +12,7 @@ use crate::store::{self, InstalledTool};
 use futures_util::StreamExt;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -23,10 +23,6 @@ use tokio::io::AsyncWriteExt;
 const NO_INTERNET: &str = "The download stopped. Check your internet connection and try again.";
 const NO_SPACE: &str = "Couldn't save the download. Make sure your computer has free space, then try again.";
 const DAMAGED: &str = "The download was damaged on the way. Please try again.";
-
-/// Tools started from the hub that are still running: slug -> process id.
-#[derive(Default)]
-pub struct Running(pub Mutex<HashMap<String, u32>>);
 
 /// Installs in flight, so a second click (or the auto-updater) doesn't start another.
 #[derive(Default)]
@@ -202,13 +198,16 @@ async fn install(app: &AppHandle, slug: &str, source: &str) -> Result<InstalledT
         },
         exe: exe.to_string_lossy().into(),
         launch_args: r.manifest.launch.args.clone(),
+        quit_args: r.manifest.control.quit.clone(),
         uninstaller: uninstaller.map(|u| u.to_string_lossy().into()),
         files: r.manifest.files.iter().map(|f| data_dir.join(&f.path).to_string_lossy().into()).collect(),
         shortcut: previous.and_then(|p| p.shortcut),
+        identifier: r.manifest.identifier.clone(),
         installed_at: chrono::Utc::now().to_rfc3339(),
     };
     store::upsert(app, entry.clone())?;
     app.emit("library-changed", ()).ok();
+    crate::rebuild_tray(app);
     Ok(entry)
 }
 
@@ -479,8 +478,18 @@ fn find(app: &AppHandle, slug: &str) -> Result<InstalledTool, String> {
 }
 
 fn is_running(app: &AppHandle, slug: &str) -> bool {
-    app.state::<Running>().0.lock().unwrap().contains_key(slug)
+    crate::running::is_running(app, slug)
 }
+
+/// Show a plain-language message in the hub (used from the tray, where there's no button to fail on).
+pub fn notify_error(msg: &str) -> Result<(), String> {
+    if let Some(app) = APP.get() {
+        app.emit("auth-error", msg).ok();
+    }
+    Ok(())
+}
+
+pub static APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
 
 /// Start the tool as its own app, signed in as the hub's user.
 #[tauri::command]
@@ -511,48 +520,9 @@ pub fn tool_launch(app: AppHandle, slug: String) -> Result<(), String> {
         Some(t) => cmd.env("TOOLBAY_TOKEN", t),
         None => cmd.env_remove("TOOLBAY_TOKEN"),
     };
-    let mut child = cmd
-        .spawn()
+    cmd.spawn()
         .map_err(|_| format!("{} didn't start. Try again, or reinstall it from its page.", tool.name))?;
-    app.state::<Running>().0.lock().unwrap().insert(slug.clone(), child.id());
-    app.emit("tool-running", serde_json::json!({ "slug": slug, "running": true })).ok();
-    let app2 = app.clone();
-    std::thread::spawn(move || {
-        let _ = child.wait();
-        app2.state::<Running>().0.lock().unwrap().remove(&slug);
-        app2.emit("tool-running", serde_json::json!({ "slug": slug, "running": false })).ok();
-        // If an update arrived while it was open, apply it now that it's closed.
-        let app3 = app2.clone();
-        tauri::async_runtime::spawn(async move { update_one(&app3, &slug).await });
-    });
     Ok(())
-}
-
-#[tauri::command]
-pub fn tool_running(app: AppHandle) -> Vec<String> {
-    app.state::<Running>().0.lock().unwrap().keys().cloned().collect()
-}
-
-#[tauri::command]
-pub fn tool_stop(app: AppHandle, slug: String) {
-    let pid = app.state::<Running>().0.lock().unwrap().get(&slug).copied();
-    if let Some(pid) = pid {
-        kill(pid);
-    }
-}
-
-fn kill(pid: u32) {
-    #[cfg(windows)]
-    {
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .creation_flags(0x0800_0000)
-            .status();
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
-    }
 }
 
 #[cfg(windows)]
@@ -563,10 +533,8 @@ use std::os::windows::process::CommandExt;
 #[tauri::command]
 pub async fn tool_uninstall(app: AppHandle, slug: String) -> Result<(), String> {
     let tool = find(&app, &slug)?;
-    let pid = app.state::<Running>().0.lock().unwrap().get(&slug).copied();
-    if let Some(pid) = pid {
-        kill(pid);
-        tokio::time::sleep(Duration::from_millis(600)).await;
+    if is_running(&app, &slug) {
+        crate::running::close(&app, &slug).await;
     }
     if let Some(un) = tool.uninstaller.as_ref().filter(|u| Path::new(u).exists()) {
         #[cfg(windows)]
@@ -664,7 +632,7 @@ fn source_for(app: &AppHandle, t: &InstalledTool) -> String {
     store::setting(app, &format!("source:{}", t.slug)).unwrap_or_else(|| t.repo.clone())
 }
 
-async fn update_one(app: &AppHandle, slug: &str) {
+pub async fn update_one(app: &AppHandle, slug: &str) {
     if store::setting(app, "autoUpdate").as_deref() == Some("false") || is_running(app, slug) {
         return;
     }

@@ -2,6 +2,7 @@ mod api;
 mod auth;
 mod installer;
 mod manifest;
+mod running;
 mod store;
 
 use tauri::menu::{Menu, MenuItem};
@@ -17,19 +18,52 @@ fn show_main(app: &AppHandle) {
     }
 }
 
+/// Tray menu: open the hub, then Open / Hide / Close for every installed tool, then Quit.
+fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    use tauri::menu::{PredefinedMenuItem, Submenu};
+    let menu = Menu::new(app)?;
+    menu.append(&MenuItem::with_id(app, "open", "Open Toolbay", true, None::<&str>)?)?;
+    let lib = store::library(app);
+    if !lib.is_empty() {
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+        let running = app.state::<running::RunState>().tools.lock().unwrap().clone();
+        for t in lib {
+            let on = running.contains_key(&t.slug);
+            let label = if on { format!("{}  ·  running", t.name) } else { t.name.clone() };
+            let sub = Submenu::with_items(
+                app,
+                label,
+                true,
+                &[
+                    &MenuItem::with_id(app, format!("tool:open:{}", t.slug), "Open", true, None::<&str>)?,
+                    &MenuItem::with_id(app, format!("tool:hide:{}", t.slug), "Hide", on, None::<&str>)?,
+                    &MenuItem::with_id(app, format!("tool:close:{}", t.slug), "Close", on, None::<&str>)?,
+                ],
+            )?;
+            menu.append(&sub)?;
+        }
+    }
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&MenuItem::with_id(app, "quit", "Quit Toolbay", true, None::<&str>)?)?;
+    Ok(menu)
+}
+
+pub fn rebuild_tray(app: &AppHandle) {
+    if let (Some(tray), Ok(menu)) = (app.tray_by_id("main"), tray_menu(app)) {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Open Toolbay", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Toolbay", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &quit])?;
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
         .tooltip("Toolbay")
-        .menu(&menu)
+        .menu(&tray_menu(app)?)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id.as_ref() {
             "open" => show_main(app),
             "quit" => app.exit(0),
-            _ => {}
+            id => running::handle_tray(app, id),
         })
         .on_tray_icon_event(|tray, e| {
             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
@@ -66,7 +100,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(auth::AuthState::default())
-        .manage(installer::Running::default())
+        .manage(running::RunState::default())
         .manage(installer::Busy::default())
         .setup(|app| {
             let handle = app.handle().clone();
@@ -99,7 +133,9 @@ pub fn run() {
                 auth::handle_deep_link(&handle, link);
             }
 
+            let _ = installer::APP.set(handle.clone());
             build_tray(&handle)?;
+            running::start(&handle);
             installer::start_auto_update(&handle);
             Ok(())
         })
@@ -123,8 +159,10 @@ pub fn run() {
             installer::tool_resolve,
             installer::tool_install,
             installer::tool_launch,
-            installer::tool_running,
-            installer::tool_stop,
+            running::tool_running,
+            running::tool_open,
+            running::tool_hide,
+            running::tool_close,
             installer::tool_uninstall,
             installer::tool_shortcut,
             installer::tool_reveal,

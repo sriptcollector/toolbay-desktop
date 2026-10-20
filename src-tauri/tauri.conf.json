@@ -68,7 +68,11 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "displayLanguageSelector": false
+        "displayLanguageSelector": false,
+        "template": "windows/installer.nsi",
+        "sidebarImage": "windows/sidebar.bmp",
+        "headerImage": "windows/header.bmp",
+        "installerIcon": "icons/icon.ico"
       },
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

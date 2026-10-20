@@ -6,6 +6,15 @@ import type { InstalledTool, Platform, Resolved, Tool, User } from "./types";
 
 export const platform: Platform = navigator.userAgent.includes("Mac") ? "mac" : "win";
 
+export interface RunInfo {
+  slug: string;
+  name: string;
+  pid: number;
+  /** Unix seconds. */
+  startedAt: number;
+  window: "shown" | "hidden";
+}
+
 export interface Progress {
   slug: string;
   stage: "preparing" | "downloading" | "installing" | "done" | "error";
@@ -29,15 +38,17 @@ export const native = {
   library: (): Promise<InstalledTool[]> => (isTauri ? invoke("library_list") : Promise.resolve([])),
   resolve: (tool: Tool) => invoke<Resolved>("tool_resolve", { slug: tool.slug, source: sourceOf(tool) }),
   install: (tool: Tool) => invoke<InstalledTool>("tool_install", { slug: tool.slug, source: sourceOf(tool) }),
-  launch: (slug: string) => invoke<void>("tool_launch", { slug }),
-  running: (): Promise<string[]> => (isTauri ? invoke("tool_running") : Promise.resolve([])),
-  stop: (slug: string) => invoke<void>("tool_stop", { slug }),
+  /** Start it, or bring its window to the front if it's running. */
+  open: (slug: string) => invoke<void>("tool_open", { slug }),
+  hide: (slug: string) => invoke<void>("tool_hide", { slug }),
+  close: (slug: string) => invoke<void>("tool_close", { slug }),
+  running: (): Promise<RunInfo[]> => (isTauri ? invoke("tool_running") : Promise.resolve([])),
   uninstall: (slug: string) => invoke<void>("tool_uninstall", { slug }),
   shortcut: (slug: string) => invoke<string>("tool_shortcut", { slug }),
   reveal: (slug: string) => invoke<void>("tool_reveal", { slug }),
 
   onProgress: (cb: (p: Progress) => void) => on<Progress>("install-progress", cb),
-  onRunning: (cb: (p: { slug: string; running: boolean }) => void) => on("tool-running", cb),
+  onRunning: (cb: (r: RunInfo[]) => void) => on<RunInfo[]>("running-changed", cb),
   onLibrary: (cb: () => void) => on<null>("library-changed", () => cb()),
   onUpdated: (cb: (p: { slug: string; name: string; version: string }) => void) => on("tool-updated", cb),
   onRoute: (cb: (p: { kind: string; slug: string }) => void) => on("open-route", cb),
@@ -57,4 +68,13 @@ export function formatSize(bytes?: number | null) {
   if (!bytes) return "";
   if (bytes > 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
   return `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`;
+}
+
+export function uptime(startedAt: number, now = Date.now()) {
+  const s = Math.max(0, Math.floor(now / 1000 - startedAt));
+  if (s < 60) return "just started";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `for ${m} min`;
+  const h = Math.floor(m / 60);
+  return `for ${h} h ${m % 60} min`;
 }

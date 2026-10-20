@@ -43,6 +43,15 @@ pub struct Manifest {
     pub files: Vec<FileEntry>,
     #[serde(default)]
     pub launch: Launch,
+    /// Optional: args that make a running instance quit cleanly, e.g. {"quit": ["--quit"]}.
+    #[serde(default)]
+    pub control: Control,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+pub struct Control {
+    #[serde(default)]
+    pub quit: Vec<String>,
 }
 
 fn one() -> u32 {
