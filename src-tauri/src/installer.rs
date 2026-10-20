@@ -158,7 +158,13 @@ async fn install(app: &AppHandle, slug: &str, source: &str) -> Result<InstalledT
     }
 
     emit(app, slug, "installing", received, total, None);
-    let dir = tools_root(app).join(sanitize(&r.manifest.id));
+    // Updates go where the tool already lives, so there's never a second copy.
+    let previous_dir = store::library(app)
+        .into_iter()
+        .find(|t| t.slug == slug)
+        .map(|t| PathBuf::from(t.dir))
+        .filter(|d| d.is_dir() && cfg!(windows));
+    let dir = previous_dir.unwrap_or_else(|| tools_root(app).join(sanitize(&r.manifest.id)));
     let (exe, uninstaller) = match kind.as_str() {
         "nsis" => install_nsis(&package, &dir, &r).await?,
         "zip" => {
@@ -198,7 +204,10 @@ async fn install(app: &AppHandle, slug: &str, source: &str) -> Result<InstalledT
         },
         exe: exe.to_string_lossy().into(),
         launch_args: r.manifest.launch.args.clone(),
-        quit_args: r.manifest.control.quit.clone(),
+        quit_args: r.manifest.control_args("quit"),
+        show_args: r.manifest.control_args("show"),
+        hide_args: r.manifest.control_args("hide"),
+        state_file: r.manifest.launch.state_file.clone().filter(|f| safe_rel(f)),
         uninstaller: uninstaller.map(|u| u.to_string_lossy().into()),
         files: r.manifest.files.iter().map(|f| data_dir.join(&f.path).to_string_lossy().into()).collect(),
         shortcut: previous.and_then(|p| p.shortcut),
@@ -271,11 +280,12 @@ async fn download(
 
 #[cfg(windows)]
 async fn install_nsis(package: &Path, dir: &Path, r: &Resolved) -> Result<(PathBuf, Option<PathBuf>), String> {
-    let mut args = if r.entry.silent_args.is_empty() { vec!["/S".to_string()] } else { r.entry.silent_args.clone() };
-    // NSIS wants /D= last and unquoted.
-    args.push(format!("/D={}", dir.display()));
+    let args = if r.entry.silent_args.is_empty() { vec!["/S".to_string()] } else { r.entry.silent_args.clone() };
+    // NSIS wants /D= last and unquoted, even with spaces ("Toolbay Tools"); .arg() would quote it
+    // and NSIS would silently ignore it. raw_arg passes it through as-is.
     let status = tokio::process::Command::new(package)
         .args(&args)
+        .raw_arg(format!("/D={}", dir.display()))
         .creation_flags(0x0800_0000)
         .status()
         .await

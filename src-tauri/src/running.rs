@@ -77,11 +77,39 @@ pub fn scan(app: &AppHandle) -> BTreeMap<String, RunInfo> {
     out
 }
 
+/// The tool's own report of its window, if it writes one and it's about this process.
+/// Accepts {"window":"shown"|"hidden"} or {"visible":true|false}.
 fn reported_window(app: &AppHandle, t: &InstalledTool, pid: u32) -> Option<String> {
     let id = t.identifier.as_deref()?;
-    let file = app.path().data_dir().ok()?.join(id).join("toolbay-state.json");
+    let name = t.state_file.as_deref().unwrap_or("toolbay-state.json");
+    let file = app.path().data_dir().ok()?.join(id).join(name);
     let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()?;
-    (v["pid"].as_u64()? == pid as u64).then(|| v["window"].as_str().map(String::from))?
+    if v["pid"].as_u64()? != pid as u64 {
+        return None;
+    }
+    if let Some(w) = v["window"].as_str() {
+        return Some(w.to_string());
+    }
+    v["visible"].as_bool().map(|b| if b { "shown".into() } else { "hidden".into() })
+}
+
+/// Send a running tool one of its own control commands (single-instance forwards it).
+fn send_control(t: &InstalledTool, args: &[String]) -> bool {
+    if args.is_empty() {
+        return false;
+    }
+    let mut cmd = std::process::Command::new(&t.exe);
+    cmd.args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    cmd.spawn().is_ok()
+}
+
+fn installed(app: &AppHandle, slug: &str) -> Option<InstalledTool> {
+    store::library(app).into_iter().find(|t| t.slug == slug)
 }
 
 pub fn is_running(app: &AppHandle, slug: &str) -> bool {
@@ -139,7 +167,12 @@ pub fn tool_running(app: AppHandle) -> Vec<RunInfo> {
 pub fn tool_open(app: AppHandle, slug: String) -> Result<(), String> {
     let pid = app.state::<RunState>().tools.lock().unwrap().get(&slug).map(|r| r.pid);
     match pid {
-        Some(pid) if native::show(pid) => {
+        Some(pid) => {
+            // Ask the tool to show itself, and bring its window forward (we have focus to give).
+            if let Some(t) = installed(&app, &slug) {
+                send_control(&t, &t.show_args);
+            }
+            native::show(pid);
             nudge(&app);
             Ok(())
         }
@@ -156,7 +189,8 @@ pub fn tool_open(app: AppHandle, slug: String) -> Result<(), String> {
 pub fn tool_hide(app: AppHandle, slug: String) -> Result<(), String> {
     let pid = app.state::<RunState>().tools.lock().unwrap().get(&slug).map(|r| r.pid);
     let Some(pid) = pid else { return Ok(()) };
-    if !native::hide(pid) {
+    let asked = installed(&app, &slug).is_some_and(|t| send_control(&t, &t.hide_args));
+    if !asked && !native::hide(pid) {
         return Err("Couldn't hide that window. Try again.".into());
     }
     nudge(&app);
@@ -173,19 +207,9 @@ pub async fn tool_close(app: AppHandle, slug: String) -> Result<(), String> {
 pub async fn close(app: &AppHandle, slug: &str) {
     let Some(pid) = app.state::<RunState>().tools.lock().unwrap().get(slug).map(|r| r.pid) else { return };
     // The tool's own quit command if it has one (single-instance apps pass it to the running copy).
-    let tool = store::library(app).into_iter().find(|t| t.slug == slug);
-    match tool.filter(|t| !t.quit_args.is_empty()) {
-        Some(t) => {
-            let mut cmd = std::process::Command::new(&t.exe);
-            cmd.args(&t.quit_args);
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(0x0800_0000);
-            }
-            let _ = cmd.spawn();
-        }
-        None => native::ask_to_quit(pid),
+    let asked = installed(app, slug).is_some_and(|t| send_control(&t, &t.quit_args));
+    if !asked {
+        native::ask_to_quit(pid);
     }
     // Give it 3 seconds to quit by itself, then make it.
     let exited = tokio::task::spawn_blocking(move || native::wait_exit(pid, 3000)).await.unwrap_or(false);

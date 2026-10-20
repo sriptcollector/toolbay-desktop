@@ -69,6 +69,11 @@ pub struct InstalledTool {
     pub launch_args: Vec<String>,
     /// Args that make a running instance quit cleanly (empty: ask its windows to close).
     pub quit_args: Vec<String>,
+    /// Args that show / hide a running instance's window (empty: the hub moves the window itself).
+    pub show_args: Vec<String>,
+    pub hide_args: Vec<String>,
+    /// State file in the tool's app data dir reporting its window ("running.json").
+    pub state_file: Option<String>,
     /// Uninstaller to run before removing the folder (NSIS/MSI).
     pub uninstaller: Option<String>,
     /// Extra files (models, ...) placed in the tool's own data dir; removed on uninstall.

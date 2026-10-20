@@ -102,9 +102,34 @@ pub struct FileEntry {
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct Launch {
     #[serde(default)]
     pub args: Vec<String>,
+    /// Args a running instance obeys: {"show": ["--show"], "hide": ["--hide"], "quit": ["--quit"]}.
+    #[serde(default)]
+    pub control: Option<serde_json::Value>,
+    /// File in the tool's app data dir saying whether its window is visible, e.g. "running.json".
+    #[serde(default)]
+    pub state_file: Option<String>,
+}
+
+impl Manifest {
+    /// Control args for "show" | "hide" | "quit", from launch.control or top-level control.
+    pub fn control_args(&self, action: &str) -> Vec<String> {
+        let from = |v: &serde_json::Value| -> Vec<String> {
+            match v {
+                serde_json::Value::String(s) => s.split_whitespace().map(String::from).collect(),
+                serde_json::Value::Array(a) => a.iter().filter_map(|x| x.as_str().map(String::from)).collect(),
+                _ => vec![],
+            }
+        };
+        let launch = self.launch.control.as_ref().and_then(|c| c.get(action)).map(from).unwrap_or_default();
+        if !launch.is_empty() {
+            return launch;
+        }
+        if action == "quit" { self.control.quit.clone() } else { vec![] }
+    }
 }
 
 /// This computer, in the manifest's platform-key format.
