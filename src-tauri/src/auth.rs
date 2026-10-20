@@ -25,9 +25,23 @@ pub fn auth_start(app: AppHandle, state: tauri::State<'_, AuthState>) -> Result<
 }
 
 #[tauri::command]
-pub fn auth_user(app: AppHandle) -> Option<Value> {
+pub async fn auth_user(app: AppHandle) -> Option<Value> {
     api::token()?;
-    store::setting(&app, "user").and_then(|u| serde_json::from_str(&u).ok())
+    if let Some(user) = store::setting(&app, "user").and_then(|u| serde_json::from_str(&u).ok()) {
+        return Some(user);
+    }
+    // Token kept in the keychain (e.g. after a reinstall) but no saved profile: ask who it is.
+    let res = api::send(&app, "GET", "/api/v1/me", None).await.ok()?;
+    if res.status == 401 {
+        let _ = api::set_token(None); // revoked or expired
+        return None;
+    }
+    let user = serde_json::from_str::<Value>(&res.body).ok()?.get("user")?.clone();
+    if user.is_null() {
+        return None;
+    }
+    let _ = store::settings_set(app.clone(), "user".into(), user.to_string());
+    Some(user)
 }
 
 #[tauri::command]

@@ -428,7 +428,8 @@ function Forks({ hub, tool }: { hub: Hub; tool: Tool }) {
     return () => window.clearInterval(id);
   }, [waiting, tool.slug, hub]);
 
-  const canFork = isGitHubRepo(tool.repoUrl) && tool.status !== "coming_soon";
+  const mine = !!hub.user?.handle && hub.user.handle === tool.author.handle;
+  const canFork = isGitHubRepo(tool.repoUrl) && tool.status !== "coming_soon" && !mine;
   const fork = async () => {
     if (!hub.user) return hub.signIn();
     setBusy(true);
