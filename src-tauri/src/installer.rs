@@ -215,6 +215,11 @@ async fn install(app: &AppHandle, slug: &str, source: &str) -> Result<InstalledT
         installed_at: chrono::Utc::now().to_rfc3339(),
     };
     store::upsert(app, entry.clone())?;
+    // A tool's own installer may have replaced our desktop shortcut (which opens it signed in
+    // through Toolbay); put ours back if the user had one.
+    if entry.shortcut.is_some() {
+        let _ = tool_shortcut(app.clone(), slug.to_string());
+    }
     app.emit("library-changed", ()).ok();
     crate::rebuild_tray(app);
     Ok(entry)
