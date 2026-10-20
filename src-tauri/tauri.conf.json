@@ -1,0 +1,66 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Toolbay",
+  "version": "0.1.0",
+  "identifier": "ai.toolbay.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Toolbay",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 980,
+        "minHeight": 660,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": { "schemes": ["toolbay"] }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhCOUFERTg3OEJDNzk3MjEKUldRaGw4ZUxoOTZhaTFZMjJNelVsbi9US05RVGdLU1FmRXByMWxvUjB6SEx4a1M0VHh6alFvcnYK",
+      "endpoints": [
+        "https://github.com/sriptcollector/toolbay-desktop/releases/latest/download/latest.json"
+      ],
+      "windows": { "installMode": "passive" }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi", "app", "dmg"],
+    "createUpdaterArtifacts": true,
+    "publisher": "Toolbay",
+    "homepage": "https://toolbay.ai",
+    "category": "Productivity",
+    "shortDescription": "Free, open-source tools in one launcher",
+    "longDescription": "Toolbay is one free launcher for open-source software tools: browse, install, update and launch them, plus Claude Code skills and a community feed.",
+    "copyright": "MIT License",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": { "installMode": "currentUser" }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "infoPlist": "Info.plist",
+      "entitlements": "Entitlements.plist"
+    }
+  }
+}

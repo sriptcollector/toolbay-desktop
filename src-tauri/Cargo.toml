@@ -1,0 +1,49 @@
+[package]
+name = "toolbay-desktop"
+version = "0.1.0"
+description = "Toolbay: one free launcher for open-source tools"
+authors = ["Toolbay"]
+license = "MIT"
+repository = "https://github.com/sriptcollector/toolbay-desktop"
+edition = "2024"
+
+[lib]
+# The `_lib` suffix avoids a bin/lib name clash on Windows (cargo#8519).
+name = "toolbay_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process", "time", "sync"] }
+futures-util = "0.3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+keyring = { version = "3", features = ["windows-native", "apple-native"] }
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+# Toolbay Flow (dictation)
+cpal = "0.15"
+hound = "3"
+arboard = "3"
+enigo = "0.2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

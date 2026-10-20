@@ -1,0 +1,604 @@
+{
+ "skills": [
+  {
+   "slug": "timezone-review",
+   "name": "Timezone Review (Claude Code)",
+   "tagline": "Find the date bugs that only break for users in other timezones.",
+   "description": "Find the date bugs that only break for users in other timezones. A Claude Code skill: install it, then ask Claude to run it on your repo.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add timezone-review"
+  },
+  {
+   "slug": "client-secret-sweep",
+   "name": "Client Secret Sweep (Claude Code)",
+   "tagline": "Prove no secret reaches the browser, by reading the built bundle.",
+   "description": "Prove no secret reaches the browser, by reading the built bundle. A Claude Code skill: install it, then ask Claude to run it on your repo.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add client-secret-sweep"
+  },
+  {
+   "slug": "honest-metrics-audit",
+   "name": "Honest Metrics Audit (Claude Code)",
+   "tagline": "Check every number your UI shows actually means what its label says.",
+   "description": "Check every number your UI shows actually means what its label says. A Claude Code skill: install it, then ask Claude to run it on your repo.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add honest-metrics-audit"
+  },
+  {
+   "slug": "retry-safety-review",
+   "name": "Retry Safety Review (Claude Code)",
+   "tagline": "Know which operations are actually safe to retry, before you wrap them.",
+   "description": "Know which operations are actually safe to retry, before you wrap them. A Claude Code skill: install it, then ask Claude to run it on your repo.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add retry-safety-review"
+  },
+  {
+   "slug": "money-math-review",
+   "name": "Money Math Review (Claude Code)",
+   "tagline": "The four money bugs that cost real cash, checked before you ship.",
+   "description": "The four money bugs that cost real cash, checked before you ship. A Claude Code skill: install it, then ask Claude to run it on your repo.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add money-math-review"
+  },
+  {
+   "slug": "prompt-injection-review",
+   "name": "Prompt Injection Review (Claude Code)",
+   "tagline": "Map what untrusted text reaches your model, and what it can then do.",
+   "description": "Map what untrusted text reaches your model, and what it can then do. A Claude Code skill: install it, then ask Claude to run it on your repo.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add prompt-injection-review"
+  },
+  {
+   "slug": "migration-safety-review",
+   "name": "Migration Safety Review (Claude Code)",
+   "tagline": "Before you run it: what it destroys, and what it locks.",
+   "description": "Before you run it: what it destroys, and what it locks. A Claude Code skill: install it, then ask Claude to run it on your repo.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add migration-safety-review"
+  },
+  {
+   "slug": "claude-code-pr-reviewer",
+   "name": "PR Reviewer Skill (Claude Code)",
+   "tagline": "A Claude Code skill that reviews your diff before you push.",
+   "description": "A packaged Claude Code skill that runs a structured review of your working diff: correctness, security, and simplification passes with severity tags. Unzip into your skills directory and invoke it.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.8.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add claude-code-pr-reviewer"
+  },
+  {
+   "slug": "claude-code-commit-skill",
+   "name": "Conventional Commit Skill (Claude Code)",
+   "tagline": "Stage your changes and get a clean Conventional Commits message every time.",
+   "description": "A packaged Claude Code skill that reads your staged diff and writes a Conventional Commits message with the right type, scope, and a tight subject line under 72 characters. Handles multi-file changes, flags breaking changes, and drafts a short body when the diff warrants it. Unzip into your skills directory and invoke it before you commit.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add claude-code-commit-skill"
+  },
+  {
+   "slug": "deploy-drift-check",
+   "name": "Deploy Drift Check (Claude Code)",
+   "tagline": "Prove what's live matches the commit you think shipped.",
+   "description": "A Claude Code skill that verifies production is actually running your latest commit, by fetching real bytes from the live site instead of trusting a deploy dashboard. Picks a witness whose output changed in the commit, compares it against source, and returns LIVE, DRIFTED, or UNPROVEN. Catches unpushed work, missing git remotes, and forgotten promote steps before you waste hours debugging code that was never running.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add deploy-drift-check"
+  },
+  {
+   "slug": "fake-data-guard",
+   "name": "Fake Data Guard (Claude Code)",
+   "tagline": "Find demo data that can reach production, before it does.",
+   "description": "A Claude Code skill that hunts fabricated seed, fixture, and demo data in your repo (invented users, hardcoded metrics, placeholder testimonials), traces whether each one can actually reach a real database or a real user, and checks whether any guard genuinely stops it. Publishing invented traction is the one mistake you cannot walk back, and the path there is usually a seed script one keystroke from a migration command.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add fake-data-guard"
+  },
+  {
+   "slug": "crawlability-audit",
+   "name": "Crawlability Audit (Claude Code)",
+   "tagline": "Find the pages Google can't reach, and the ones it won't trust.",
+   "description": "A Claude Code skill that audits the mechanical SEO failures nobody notices: robots.txt prefix rules that block far more than intended, sitemaps advertising URLs robots forbids, error pages served as HTTP 200 so crawlers file them as thin content, missing canonicals on filterable pages, and duplicate titles across your highest-intent routes. Verifies against the live site, because the deployed robots.txt is often older than the file in your repo.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Marketing",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add crawlability-audit"
+  },
+  {
+   "slug": "route-auth-sweep",
+   "name": "Route Auth Sweep (Claude Code)",
+   "tagline": "Prove every API route gates before it touches data.",
+   "description": "A Claude Code skill that enumerates every API route and checks each one gates before querying: authentication, ownership scoping, role checks, rate limiting, CSRF on mutations, and webhook signature verification. Built around the finding that matters most, which is not a missing login but a route that authenticates you and then trusts an id from the request to decide whose record to return.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add route-auth-sweep"
+  },
+  {
+   "slug": "dependency-outage-audit",
+   "name": "Dependency Outage Audit (Claude Code)",
+   "tagline": "Find out what breaks when your database goes down, before it does.",
+   "description": "A Claude Code skill that maps which pages die when a dependency dies, and which ones lie about it by returning HTTP 200 with an empty body so uptime monitors report success. Separates pages that fail for essential reasons from those taking an outage for a decorative view count or an inherited session call. Insists you simulate the outage rather than reason about it, and sweep every URL your sitemap advertises rather than a sample.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add dependency-outage-audit"
+  },
+  {
+   "slug": "codebase-onboarding-map",
+   "name": "Codebase Onboarding Map (Claude Code)",
+   "tagline": "Get oriented in an unfamiliar repo in an hour, not a week.",
+   "description": "A Claude Code skill that produces a real orientation guide to a codebase you did not write: one request traced end to end with file and line at every hop, where the load-bearing rules live, which modules are choke points by import count, the traps that will bite you, and where the README disagrees with the code. Ends with five files to read first, in order, with reasons. A map of where to go, not a summary of what exists.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add codebase-onboarding-map"
+  },
+  {
+   "slug": "env-drift-check",
+   "name": "Env Drift Check (Claude Code)",
+   "tagline": "Catch the missing env var before production does.",
+   "description": "A Claude Code skill that compares the environment variables your code actually reads against what is declared and what is really set in your deploy target. Its most valuable pass finds silent fallbacks: the `?? \"default\"` that turns a missing key into wrong behaviour instead of a crash, so emails quietly stop sending or a shared rate limiter reverts to per-process and stops limiting. Also flags secrets sitting behind public prefixes, which are baked into your client bundle and already leaked.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add env-drift-check"
+  },
+  {
+   "slug": "release-notes-writer",
+   "name": "Release Notes Writer (Claude Code)",
+   "tagline": "Release notes people actually read, grouped by what changed for them.",
+   "description": "A Claude Code skill that turns a commit range into release notes written for the reader rather than the repository. Groups by IMPACT instead of commit prefix, because a fix: can be breaking and a chore: can be the most important line in the release. Leads with what the reader must DO, names the symptom for every bug fix so people recognise what they hit, and collapses refactors and dependency bumps to a count so the one migration nobody can skip does not sink below the fold. Reads the diff for config keys, migrations, and deletions that no commit subject announced.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add release-notes-writer"
+  },
+  {
+   "slug": "webhook-safety-review",
+   "name": "Webhook Safety Review (Claude Code)",
+   "tagline": "The four webhook bugs that cost money, checked one by one.",
+   "description": "A Claude Code skill for reviewing incoming webhook handlers, which are unauthenticated public endpoints that react by moving money or granting access. Checks signature verification runs on the RAW body before parsing, that handlers are idempotent because senders retry and every event arrives more than once, that heavy work happens after acknowledging, and that status codes are right so an unknown event type does not get retried forever until the provider disables your endpoint. Also flags handlers trusting an amount from the payload instead of re-reading it.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add webhook-safety-review"
+  },
+  {
+   "slug": "empty-state-audit",
+   "name": "Empty State Audit (Claude Code)",
+   "tagline": "See what your product looks like before anyone has used it.",
+   "description": "A Claude Code skill for the state every early visitor actually sees and nobody designs: no data yet. Finds screens that render nothing at length zero, dead-end \"No results\" messages, and stats that expose youth rather than inform (\"0 reviews\" reads as nobody is here). Its most important pass hunts the dishonest fix, since padding an empty screen with plausible placeholder data is a lie that gets discovered exactly when someone was deciding whether to trust you. The goal is honest and inviting, never full.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add empty-state-audit"
+  },
+  {
+   "slug": "n-plus-one-finder",
+   "name": "N+1 Finder (Claude Code)",
+   "tagline": "Find the query-in-a-loop that is invisible until traffic arrives.",
+   "description": "A Claude Code skill that finds database queries running inside loops, the N+1 pattern that costs 11 fast queries on seed data and 10,001 round trips in production. Catches the lazy-relation form that has no visible query at all, unbounded reads with no limit on tables that grow forever, and repeated identical reads in a single request. Insists you measure query count at two different row counts, because whether the count GROWS with rows is the entire diagnosis. Also flags Promise.all over per-item queries, which is still N queries and merely exhausts the connection pool instead of the clock.",
+   "iconUrl": "",
+   "screenshots": [],
+   "category": "Engineering",
+   "repoUrl": "https://github.com/sriptcollector/toolbay-stack",
+   "license": "MIT",
+   "version": "1.0.0",
+   "platforms": [
+    "mac",
+    "win"
+   ],
+   "priceCents": 0,
+   "openSource": true,
+   "privacy": {
+    "status": "pending",
+    "checkedAt": null,
+    "summary": "Not checked yet."
+   },
+   "rating": 0,
+   "reviewCount": 0,
+   "author": {
+    "name": "Toolbay",
+    "handle": "toolbay"
+   },
+   "install": "npx toolbay add n-plus-one-finder"
+  }
+ ]
+}
