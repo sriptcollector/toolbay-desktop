@@ -1,7 +1,7 @@
 mod api;
 mod auth;
-mod flow;
 mod installer;
+mod manifest;
 mod store;
 
 use tauri::menu::{Menu, MenuItem};
@@ -19,9 +19,8 @@ fn show_main(app: &AppHandle) {
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Toolbay", true, None::<&str>)?;
-    let flow = MenuItem::with_id(app, "flow", "Toolbay Flow…", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &flow, &quit])?;
+    let quit = MenuItem::with_id(app, "quit", "Quit Toolbay", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &quit])?;
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
         .tooltip("Toolbay")
@@ -29,10 +28,6 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, e| match e.id.as_ref() {
             "open" => show_main(app),
-            "flow" => {
-                show_main(app);
-                let _ = tauri::Emitter::emit(app, "open-route", serde_json::json!({"kind":"tool","slug":"toolbay-flow"}));
-            }
             "quit" => app.exit(0),
             _ => {}
         })
@@ -49,14 +44,18 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 pub fn run() {
     let mut builder = tauri::Builder::default();
 
-    // Single instance must be registered first: a second launch (e.g. from a
-    // toolbay:// link on Windows) forwards its URL here and exits.
+    // Single instance must be registered first: a second launch (a toolbay:// link
+    // or a desktop shortcut) forwards its arguments here and exits.
     #[cfg(desktop)]
     {
+        // A link can also arrive through on_open_url below; handle_deep_link drops repeats.
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            show_main(app);
-            for arg in argv.iter().filter(|a| a.starts_with("toolbay://")) {
-                auth::handle_deep_link(app, arg);
+            let links: Vec<&String> = argv.iter().filter(|a| a.starts_with("toolbay://")).collect();
+            if links.is_empty() {
+                show_main(app);
+            }
+            for link in links {
+                auth::handle_deep_link(app, link);
             }
         }));
     }
@@ -66,18 +65,14 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| flow::on_shortcut(app, event.state()))
-                .build(),
-        )
         .manage(auth::AuthState::default())
-        .manage(flow::Flow::default())
+        .manage(installer::Running::default())
+        .manage(installer::Busy::default())
         .setup(|app| {
             let handle = app.handle().clone();
 
-            // toolbay:// deep links. On Windows/Linux in dev the scheme is
-            // registered at runtime; installers register it for release builds.
+            // On Windows/Linux in dev the scheme is registered at runtime; the
+            // installers register it for release builds.
             #[cfg(any(windows, target_os = "linux"))]
             {
                 let _ = app.deep_link().register_all();
@@ -88,18 +83,28 @@ pub fn run() {
                     auth::handle_deep_link(&h, url.as_str());
                 }
             });
-            if let Ok(Some(urls)) = app.deep_link().get_current() {
-                for url in urls {
-                    auth::handle_deep_link(&handle, url.as_str());
-                }
+
+            // The window starts hidden so a desktop shortcut (toolbay://launch/<slug>)
+            // can open its tool without flashing the hub.
+            let mut start_links: Vec<String> = std::env::args()
+                .filter(|a| a.starts_with("toolbay://"))
+                .chain(app.deep_link().get_current().ok().flatten().unwrap_or_default().into_iter().map(|u| u.to_string()))
+                .collect();
+            start_links.sort();
+            start_links.dedup_by(|a, b| a.trim_end_matches('/') == b.trim_end_matches('/'));
+            if !start_links.iter().any(|l| auth::is_launch_link(l)) {
+                show_main(&handle);
+            }
+            for link in &start_links {
+                auth::handle_deep_link(&handle, link);
             }
 
             build_tray(&handle)?;
-            flow::restore(&handle);
+            installer::start_auto_update(&handle);
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Closing the window keeps Toolbay in the tray (Flow keeps listening).
+            // Closing the window keeps Toolbay in the tray so tools can update quietly.
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
                     api.prevent_close();
@@ -115,14 +120,14 @@ pub fn run() {
             store::settings_get,
             store::settings_set,
             store::library_list,
+            installer::tool_resolve,
             installer::tool_install,
             installer::tool_launch,
-            installer::tool_reveal,
+            installer::tool_running,
+            installer::tool_stop,
             installer::tool_uninstall,
-            installer::skill_install,
-            flow::flow_status,
-            flow::flow_enable,
-            flow::flow_download_model,
+            installer::tool_shortcut,
+            installer::tool_reveal,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Toolbay");

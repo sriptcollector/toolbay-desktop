@@ -14,7 +14,7 @@ export interface Author {
   handle: string;
 }
 
-export interface Listing {
+export interface Tool {
   slug: string;
   name: string;
   tagline: string;
@@ -26,28 +26,19 @@ export interface Listing {
   license: string;
   version: string;
   platforms: Platform[];
+  /** Direct download URLs per platform (the website's buttons). The hub installs from `install` instead. */
+  downloads?: Partial<Record<Platform, string>>;
   priceCents: number;
   openSource: boolean;
   privacy: Privacy;
-  rating: number;
+  rating: number | null;
   reviewCount: number;
   author: Author;
-}
-
-export interface Tool extends Listing {
-  /** Direct download URL per platform. "builtin:<slug>" means the tool ships inside this app. */
-  downloads: Partial<Record<Platform, string>>;
-  /** Optional, not in the base contract: the paid product this replaces. */
-  replaces?: string;
-  /** Optional: program to start inside the unpacked download, with args, per platform. */
-  launch?: Partial<Record<Platform, string>>;
-  /** Optional: "app" | "cli" | "folder" | "builtin". */
-  kind?: string;
-}
-
-export interface Skill extends Listing {
-  /** Optional: the command that installs it. */
-  install?: string;
+  status?: "coming_soon" | "beta" | "live";
+  /** The product this is an open-source take on. Shown as "Inspired by <name>". */
+  inspiredBy?: { name: string; company: string } | null;
+  /** Where the hub installs from. Defaults to the GitHub repo in repoUrl. */
+  install?: { type: "github"; repo: string } | { type: "manifest"; url: string };
 }
 
 export interface Review {
@@ -61,11 +52,12 @@ export interface Review {
 export interface Post {
   id: string;
   body: string;
+  linkUrl?: string | null;
+  imageUrls?: string[];
   createdAt: string;
-  author: Author;
-  toolSlug: string | null;
-  replyCount: number;
-  likeCount: number;
+  author: Author & { avatarUrl?: string | null };
+  commentCount?: number;
+  reactions?: { kind: string; emoji: string; count: number; mine: boolean }[];
 }
 
 export interface User {
@@ -80,7 +72,21 @@ export interface InstalledTool {
   slug: string;
   name: string;
   version: string;
-  path: string;
-  launchPath: string | null;
+  repo: string;
+  kind: string;
+  dir: string;
+  exe: string;
+  launchArgs: string[];
+  uninstaller: string | null;
+  files: string[];
+  shortcut: string | null;
   installedAt: string;
+}
+
+/** What installing would fetch (from the tool's toolbay.json on its latest release). */
+export interface Resolved {
+  manifest: { id: string; name: string; version: string; files: { size?: number }[] };
+  entry: { kind: string; size?: number };
+  downloadUrl: string;
+  releaseTag: string | null;
 }

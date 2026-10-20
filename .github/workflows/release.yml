@@ -1,12 +1,21 @@
-# Builds signed installers for macOS (Apple Silicon + Intel) and Windows and
-# publishes them, with latest.json for the in-app updater, to a GitHub Release.
+# Builds Toolbay for macOS (Apple Silicon + Intel) and Windows and publishes a draft GitHub
+# Release with installers and latest.json for the in-app updater.
 # Run it by pushing a tag like v0.1.1, or from the Actions tab.
 #
-# Secrets needed:
-#   TAURI_SIGNING_PRIVATE_KEY           contents of ~/.tauri/toolbay-updater.key (updater signature)
-#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  empty unless you set one
-# Optional, for notarized macOS builds: APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
-#   APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
+# Secrets (Settings > Secrets and variables > Actions):
+#   Required
+#     TAURI_SIGNING_PRIVATE_KEY            contents of ~/.tauri/toolbay-updater.key (update signatures)
+#     TAURI_SIGNING_PRIVATE_KEY_PASSWORD   empty unless the key has one
+#   Windows code signing (Azure Artifact Signing, formerly Trusted Signing). Signing turns on when set.
+#     AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID   service principal with the "Trusted Signing Certificate Profile Signer" role
+#     AZURE_SIGNING_ENDPOINT   e.g. https://eus.codesigning.azure.net
+#     AZURE_SIGNING_ACCOUNT    signing account name
+#     AZURE_SIGNING_PROFILE    certificate profile name
+#   macOS signing + notarization (Apple Developer Program). Signing turns on when set.
+#     APPLE_CERTIFICATE            base64 of the "Developer ID Application" .p12
+#     APPLE_CERTIFICATE_PASSWORD   password of that .p12
+#     APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: Toolbay (TEAMID)"
+#     APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID
 name: release
 on:
   push:
@@ -28,6 +37,8 @@ jobs:
           - platform: windows-latest
             args: ""
     runs-on: ${{ matrix.platform }}
+    env:
+      HAS_AZURE: ${{ secrets.AZURE_CLIENT_ID != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -41,11 +52,26 @@ jobs:
         with:
           workspaces: src-tauri -> target
       - run: npm ci
+
+      - name: Windows signing config
+        if: matrix.platform == 'windows-latest' && env.HAS_AZURE == 'true'
+        shell: bash
+        run: |
+          cargo install trusted-signing-cli --locked
+          cat > src-tauri/tauri.windows-signing.conf.json <<JSON
+          { "bundle": { "windows": { "signCommand":
+            "trusted-signing-cli -e ${{ secrets.AZURE_SIGNING_ENDPOINT }} -a ${{ secrets.AZURE_SIGNING_ACCOUNT }} -c ${{ secrets.AZURE_SIGNING_PROFILE }} -d Toolbay %1" } } }
+          JSON
+          echo "SIGN_ARGS=--config src-tauri/tauri.windows-signing.conf.json" >> "$GITHUB_ENV"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -57,4 +83,4 @@ jobs:
           releaseName: Toolbay v__VERSION__
           releaseDraft: true
           includeUpdaterJson: true
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ env.SIGN_ARGS }}

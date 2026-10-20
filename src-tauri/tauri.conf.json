@@ -15,10 +15,11 @@
         "label": "main",
         "title": "Toolbay",
         "width": 1280,
-        "height": 820,
+        "height": 800,
         "minWidth": 980,
         "minHeight": 660,
-        "center": true
+        "center": true,
+        "visible": false
       }
     ],
     "security": {
@@ -27,19 +28,29 @@
   },
   "plugins": {
     "deep-link": {
-      "desktop": { "schemes": ["toolbay"] }
+      "desktop": {
+        "schemes": [
+          "toolbay"
+        ]
+      }
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhCOUFERTg3OEJDNzk3MjEKUldRaGw4ZUxoOTZhaTFZMjJNelVsbi9US05RVGdLU1FmRXByMWxvUjB6SEx4a1M0VHh6alFvcnYK",
       "endpoints": [
         "https://github.com/sriptcollector/toolbay-desktop/releases/latest/download/latest.json"
       ],
-      "windows": { "installMode": "passive" }
+      "windows": {
+        "installMode": "quiet"
+      }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi", "app", "dmg"],
+    "targets": [
+      "nsis",
+      "app",
+      "dmg"
+    ],
     "createUpdaterArtifacts": true,
     "publisher": "Toolbay",
     "homepage": "https://toolbay.ai",
@@ -55,7 +66,14 @@
       "icons/icon.ico"
     ],
     "windows": {
-      "nsis": { "installMode": "currentUser" }
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      }
     },
     "macOS": {
       "minimumSystemVersion": "11.0",

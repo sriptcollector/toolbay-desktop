@@ -1,208 +1,334 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Hub } from "./App";
 import { api, isTauri } from "./lib/api";
-import { native, platform, type FlowStatus } from "./lib/native";
-import type { Listing, Review, Skill, Tool, User } from "./lib/types";
-import { Icon, Price, PrivacyBadge, Stars, Tile, timeAgo } from "./components";
+import { formatSize, native, platform } from "./lib/native";
+import type { Resolved, Review, Tool, User } from "./lib/types";
+import { Icon, Inspired, PrivacyChip, Stars, timeAgo } from "./components";
 
 const open = (url: string) => (isTauri ? openUrl(url) : window.open(url, "_blank"));
 
-function matches(item: Listing, q: string) {
-  const s = q.trim().toLowerCase();
-  if (!s) return true;
-  return [item.name, item.tagline, item.category, (item as Tool).replaces ?? ""].some((f) =>
-    f.toLowerCase().includes(s),
+// What installing would fetch, per tool, cached for the session. null = not downloadable yet.
+const resolved = new Map<string, Promise<Resolved | null>>();
+function useResolved(tool: Tool | undefined) {
+  const [r, setR] = useState<Resolved | null | undefined>(undefined);
+  useEffect(() => {
+    if (!tool || !isTauri) return setR(null);
+    if (!resolved.has(tool.slug)) resolved.set(tool.slug, native.resolve(tool).catch(() => null));
+    let alive = true;
+    resolved.get(tool.slug)!.then((v) => alive && setR(v));
+    return () => {
+      alive = false;
+    };
+  }, [tool]);
+  return r;
+}
+
+function totalSize(r: Resolved | null | undefined) {
+  if (!r?.entry.size) return null;
+  return r.entry.size + r.manifest.files.reduce((a, f) => a + (f.size ?? 0), 0);
+}
+
+// ---------------- The one big button: Install / progress / Open ----------------
+
+function ActionButton({ hub, tool, big }: { hub: Hub; tool: Tool; big?: boolean }) {
+  const r = useResolved(tool);
+  const installed = hub.library.find((l) => l.slug === tool.slug);
+  const isRunning = hub.running.includes(tool.slug);
+  const p = hub.progress[tool.slug];
+  const cls = `btn primary ${big ? "big" : ""}`;
+
+  if (p) {
+    const pct = p.total ? Math.min(1, p.received / p.total) : null;
+    const label =
+      p.stage === "installing"
+        ? "Installing…"
+        : p.stage === "preparing"
+          ? "Getting ready…"
+          : pct != null
+            ? `Downloading ${Math.round(pct * 100)}%`
+            : `Downloading ${formatSize(p.received)}`;
+    return (
+      <div className="progress-wrap">
+        <div className="progress-label">
+          <span>{label}</span>
+          {p.total && p.stage === "downloading" && (
+            <span className="muted">
+              {formatSize(p.received)} of {formatSize(p.total)}
+            </span>
+          )}
+        </div>
+        <div className={`progress ${pct == null || p.stage !== "downloading" ? "indeterminate" : ""}`}>
+          <div style={pct != null && p.stage === "downloading" ? { transform: `scaleX(${pct})` } : undefined} />
+        </div>
+      </div>
+    );
+  }
+  if (installed) {
+    return (
+      <>
+        <button className={cls} onClick={() => hub.launch(tool)}>
+          Open
+        </button>
+        {isRunning && (
+          <span className="running">
+            <span className="dot" /> Running
+          </span>
+        )}
+      </>
+    );
+  }
+  if (!tool.platforms.includes(platform)) {
+    return (
+      <button className={cls} disabled>
+        Not on {platform === "mac" ? "Mac" : "Windows"} yet
+      </button>
+    );
+  }
+  if (r === undefined) {
+    return (
+      <button className={cls} disabled>
+        Install
+      </button>
+    );
+  }
+  if (r === null) {
+    return (
+      <>
+        <button className={cls} disabled>
+          Coming soon
+        </button>
+        <span className="muted small">Not ready to download yet.</span>
+      </>
+    );
+  }
+  const size = totalSize(r);
+  return (
+    <>
+      <button className={cls} onClick={() => hub.install(tool)}>
+        Install
+      </button>
+      <span className="muted small">Free{size ? ` · ${formatSize(size)}` : ""}</span>
+    </>
+  );
+}
+
+function ShortcutOffer({ hub, tool }: { hub: Hub; tool: Tool }) {
+  if (hub.justInstalled !== tool.slug) return null;
+  const add = async () => {
+    try {
+      await native.shortcut(tool.slug);
+      hub.toast(`Added ${tool.name} to your desktop.`);
+    } catch (e) {
+      hub.toast(String(e));
+    }
+    hub.setJustInstalled(null);
+  };
+  return (
+    <div className="notice">
+      <div className="grow">
+        <div className="title">{tool.name} is installed.</div>
+        <div className="small muted">Add a shortcut to your desktop so you can open it in one click?</div>
+      </div>
+      <button className="btn" onClick={() => hub.setJustInstalled(null)}>
+        No thanks
+      </button>
+      <button className="btn primary" onClick={add}>
+        Add shortcut
+      </button>
+    </div>
+  );
+}
+
+function Hero({ hub, tool, onTitle }: { hub: Hub; tool: Tool; onTitle?: () => void }) {
+  return (
+    <div className="hero">
+      <Icon tool={tool} className="hero-icon" />
+      <div className="hero-body">
+        <h1 className="hero-title" onClick={onTitle} style={onTitle ? { cursor: "pointer" } : undefined}>
+          {tool.name}
+        </h1>
+        <div className="hero-tagline">{tool.tagline}</div>
+        <div className="hero-meta">
+          <Inspired tool={tool} />
+          <span className="chip">Free</span>
+          <span className="chip">Open source · {tool.license}</span>
+          <PrivacyChip privacy={tool.privacy} />
+        </div>
+      </div>
+      <div className="hero-action">
+        <ActionButton hub={hub} tool={tool} big />
+      </div>
+    </div>
   );
 }
 
 // ---------------- Home ----------------
 
 export function HomePage({ hub }: { hub: Hub }) {
-  const greeting = hub.user ? `Welcome back, ${hub.user.name?.split(" ")[0] || hub.user.handle}.` : "Free tools, open source.";
-  const installed = hub.library
-    .map((l) => hub.tools.find((t) => t.slug === l.slug))
-    .filter(Boolean) as Tool[];
+  const featured = hub.tools[0];
+  const first = hub.user?.name?.split(" ")[0];
   return (
     <>
-      <h1 className="display">{greeting}</h1>
-      <p className="lede">
-        Free, open-source rebuilds of the software you'd otherwise pay for. Every tool shows its source code, license
-        and privacy check.
-      </p>
-
-      {installed.length > 0 && (
+      <h1>{first ? `Welcome back, ${first}.` : "Welcome to Toolbay."}</h1>
+      <p className="lede">Free, open-source apps. One click to install, and they keep themselves up to date.</p>
+      {featured && (
         <>
-          <h2>Jump back in</h2>
-          <div className="list">
-            {installed.slice(0, 4).map((t) => (
-              <div className="list-row" key={t.slug}>
-                <Icon item={t} />
-                <div className="grow">
-                  <div className="tile-name">{t.name}</div>
-                  <div className="muted small">{t.tagline}</div>
-                </div>
-                <button className="btn" onClick={() => hub.go({ page: "tools", slug: t.slug })}>
-                  Details
-                </button>
-                {t.kind !== "builtin" && (
-                  <button className="btn primary" onClick={() => hub.launch(t.slug)}>
-                    Open
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
+          <Hero hub={hub} tool={featured} onTitle={() => hub.go({ page: "tools", slug: featured.slug })} />
+          <ShortcutOffer hub={hub} tool={featured} />
         </>
       )}
-
-      <h2>Tools</h2>
-      <div className="grid">
-        {hub.tools.slice(0, 6).map((t) => (
-          <Tile key={t.slug} item={t} onOpen={() => hub.go({ page: "tools", slug: t.slug })} extra={<Replaces t={t} />} />
-        ))}
-      </div>
-
-      <h2>Skills for Claude Code</h2>
-      <div className="grid">
-        {hub.skills.slice(0, 3).map((s) => (
-          <Tile key={s.slug} item={s} onOpen={() => hub.go({ page: "skills", slug: s.slug })} />
-        ))}
-      </div>
+      <h2>All tools</h2>
+      <ToolGrid hub={hub} />
     </>
   );
 }
 
-function Replaces({ t }: { t: Tool }) {
-  return t.replaces ? <span className="badge">Instead of {t.replaces}</span> : null;
-}
-
-// ---------------- Tools ----------------
-
-function Browse<T extends Listing>({
-  title,
-  lede,
-  items,
-  onOpen,
-  extra,
-}: {
-  title: string;
-  lede: string;
-  items: T[];
-  onOpen: (slug: string) => void;
-  extra?: (item: T) => React.ReactNode;
-}) {
-  const [q, setQ] = useState("");
-  const [cat, setCat] = useState("All");
-  const cats = useMemo(() => ["All", ...Array.from(new Set(items.map((i) => i.category))).sort()], [items]);
-  const shown = items.filter((i) => (cat === "All" || i.category === cat) && matches(i, q));
+function ToolGrid({ hub, tools }: { hub: Hub; tools?: Tool[] }) {
+  const list = tools ?? hub.tools;
   return (
-    <>
-      <h1 className="display">{title}</h1>
-      <p className="lede">{lede}</p>
-      <div className="row">
-        <input className="search" placeholder="Search" value={q} onChange={(e) => setQ(e.target.value)} />
-      </div>
-      <div className="row" style={{ marginTop: 12 }}>
-        {cats.map((c) => (
-          <button key={c} className={`chip ${c === cat ? "active" : ""}`} onClick={() => setCat(c)}>
-            {c}
+    <div className="grid">
+      {list.map((t) => {
+        const installed = hub.library.some((l) => l.slug === t.slug);
+        return (
+          <button key={t.slug} className="tile" onClick={() => hub.go({ page: "tools", slug: t.slug })}>
+            <div className="tile-art">
+              <Icon tool={t} />
+            </div>
+            <div className="tile-body">
+              <div className="tile-name">{t.name}</div>
+              <div className="tile-sub">
+                {hub.running.includes(t.slug) ? "Running" : installed ? "Installed" : t.inspiredBy ? `Inspired by ${t.inspiredBy.name}` : t.category}
+              </div>
+            </div>
           </button>
-        ))}
-      </div>
-      <div className="grid">
-        {shown.map((i) => (
-          <Tile key={i.slug} item={i} onOpen={() => onOpen(i.slug)} extra={extra?.(i)} />
-        ))}
-      </div>
-      {shown.length === 0 && <div className="empty">Nothing matches that search.</div>}
-    </>
+        );
+      })}
+      {!tools && (
+        <div className="tile placeholder">
+          <div className="tile-art">More free tools are on the way</div>
+          <div className="tile-body">
+            <div className="tile-sub">New tools show up here automatically.</div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
 export function ToolsPage({ hub }: { hub: Hub }) {
   return (
-    <Browse
-      title="Tools"
-      lede="Open-source software you can install with one click. Free, and yours to inspect."
-      items={hub.tools}
-      onOpen={(slug) => hub.go({ page: "tools", slug })}
-      extra={(t) => <Replaces t={t} />}
-    />
-  );
-}
-
-export function SkillsPage({ hub }: { hub: Hub }) {
-  return (
-    <Browse
-      title="Skills"
-      lede="Skills for Claude Code and other agents. Install one, then ask your agent to use it."
-      items={hub.skills}
-      onOpen={(slug) => hub.go({ page: "skills", slug })}
-    />
-  );
-}
-
-// ---------------- Detail ----------------
-
-function Facts({ item }: { item: Listing }) {
-  return (
-    <div className="facts">
-      <div className="fact">
-        <div className="fact-label">Version</div>
-        <div className="fact-value">{item.version}</div>
-      </div>
-      <div className="fact">
-        <div className="fact-label">License</div>
-        <div className="fact-value">{item.license}</div>
-      </div>
-      <div className="fact">
-        <div className="fact-label">Platforms</div>
-        <div className="fact-value">{item.platforms.map((p) => (p === "mac" ? "macOS" : "Windows")).join(", ")}</div>
-      </div>
-      <div className="fact">
-        <div className="fact-label">Made by</div>
-        <div className="fact-value">{item.author.name}</div>
-      </div>
-    </div>
-  );
-}
-
-function Source({ item }: { item: Listing }) {
-  return (
     <>
-      <h2>Open source</h2>
-      <div className="privacy-box">
-        <div className="grow" style={{ flex: 1 }}>
-          <div style={{ fontWeight: 550 }}>{item.repoUrl.replace(/^https?:\/\/(www\.)?/, "")}</div>
-          <div className="muted small">Licensed {item.license}. Read every line before you install.</div>
-        </div>
-        <button className="btn" onClick={() => open(item.repoUrl)}>
-          View source
-        </button>
-      </div>
-      <h2>Privacy check</h2>
-      <div className="privacy-box">
-        <PrivacyBadge privacy={item.privacy} />
-        <div className="small" style={{ flex: 1 }}>
-          {item.privacy.summary}
-          {item.privacy.checkedAt && (
-            <div className="muted">Checked {new Date(item.privacy.checkedAt).toLocaleDateString()}</div>
-          )}
-        </div>
-      </div>
+      <h1>Tools</h1>
+      <p className="lede">Free, open-source apps. Every one shows its source code and a privacy check.</p>
+      <ToolGrid hub={hub} />
     </>
   );
 }
 
-function Screenshots({ item }: { item: Listing }) {
-  if (!item.screenshots.length) return null;
+// ---------------- Tool page ----------------
+
+export function ToolDetail({ hub, slug }: { hub: Hub; slug: string }) {
+  const tool = hub.tools.find((t) => t.slug === slug);
+  if (!tool) return <div className="empty">Loading…</div>;
+  const installed = hub.library.find((l) => l.slug === slug);
+  const shortcut = async () => {
+    try {
+      await native.shortcut(slug);
+      hub.toast(`Added ${tool.name} to your desktop.`);
+    } catch (e) {
+      hub.toast(String(e));
+    }
+  };
   return (
-    <div className="shots">
-      {item.screenshots.map((s) => (
-        <img key={s} src={s} alt="" />
-      ))}
-    </div>
+    <>
+      <button className="link back" onClick={() => hub.go({ page: "tools" })}>
+        ← All tools
+      </button>
+      <Hero hub={hub} tool={tool} />
+      <ShortcutOffer hub={hub} tool={tool} />
+      {tool.screenshots.length > 0 && (
+        <div className="row" style={{ marginTop: 20, overflowX: "auto", flexWrap: "nowrap" }}>
+          {tool.screenshots.map((s) => (
+            <img key={s} src={s} alt="" style={{ height: 220, borderRadius: 12, border: "1px solid var(--line)" }} />
+          ))}
+        </div>
+      )}
+      <div className="facts">
+        <div className="fact">
+          <div className="fact-label">Version</div>
+          <div className="fact-value">{installed?.version ?? tool.version}</div>
+        </div>
+        <div className="fact">
+          <div className="fact-label">Works on</div>
+          <div className="fact-value">{tool.platforms.map((p) => (p === "mac" ? "Mac" : "Windows")).join(" and ")}</div>
+        </div>
+        <div className="fact">
+          <div className="fact-label">Price</div>
+          <div className="fact-value">Free</div>
+        </div>
+        <div className="fact">
+          <div className="fact-label">Reviews</div>
+          <div className="fact-value">
+            <Stars rating={tool.rating} count={tool.reviewCount} />
+          </div>
+        </div>
+      </div>
+
+      <h2>About</h2>
+      <div className="prose">{tool.description}</div>
+
+      <h2>Open source</h2>
+      <div className="panel">
+        <div className="list-row">
+          <div className="grow">
+            <div className="title">{tool.repoUrl.replace(/^https?:\/\/(www\.)?/, "")}</div>
+            <div className="small muted">Anyone can read the code. License: {tool.license}.</div>
+          </div>
+          <button className="btn" onClick={() => open(tool.repoUrl)}>
+            View code
+          </button>
+        </div>
+        <div className="list-row">
+          <div className="grow">
+            <div className="title">Privacy check</div>
+            <div className="small muted">
+              {tool.privacy.summary}
+              {tool.privacy.checkedAt && ` Checked ${new Date(tool.privacy.checkedAt).toLocaleDateString()}.`}
+            </div>
+          </div>
+          <PrivacyChip privacy={tool.privacy} />
+        </div>
+      </div>
+
+      {installed && (
+        <>
+          <h2>Manage</h2>
+          <div className="row">
+            <button className="btn" onClick={shortcut}>
+              {installed.shortcut ? "Re-add desktop shortcut" : "Add desktop shortcut"}
+            </button>
+            <button className="btn" onClick={() => hub.install(tool)} disabled={!!hub.progress[slug]}>
+              Reinstall
+            </button>
+            <button className="btn danger" onClick={() => hub.uninstall(tool)}>
+              Uninstall
+            </button>
+          </div>
+          <div className="small muted" style={{ marginTop: 8 }}>
+            Updates install by themselves when {tool.name} isn't open.
+          </div>
+        </>
+      )}
+
+      <Reviews hub={hub} slug={slug} />
+
+      {tool.inspiredBy && (
+        <div className="disclaimer">
+          Independent open-source project, not affiliated with or endorsed by {tool.inspiredBy.company}.
+        </div>
+      )}
+    </>
   );
 }
 
@@ -218,11 +344,11 @@ function Reviews({ hub, slug }: { hub: Hub; slug: string }) {
     setBusy(true);
     try {
       const { review } = await api.postReview(slug, rating, body.trim());
-      setReviews((cur) => [review, ...cur]);
+      setReviews((cur) => [review, ...cur.filter((r) => r.id !== review.id)]);
       setBody("");
       setRating(0);
-    } catch (e) {
-      hub.toast(`Couldn't post your review: ${e}`);
+    } catch {
+      hub.toast("Your review didn't post. Check your internet connection and try again.");
     } finally {
       setBusy(false);
     }
@@ -240,24 +366,23 @@ function Reviews({ hub, slug }: { hub: Hub; slug: string }) {
             ))}
           </div>
           <textarea placeholder="What did you use it for?" value={body} onChange={(e) => setBody(e.target.value)} />
-          <div className="row">
-            <div style={{ flex: 1 }} />
-            <button className="btn primary" disabled={!rating || !body.trim() || busy} onClick={submit}>
+          <div className="row" style={{ justifyContent: "flex-end" }}>
+            <button className="btn primary" disabled={!rating || body.trim().length < 3 || busy} onClick={submit}>
               Post review
             </button>
           </div>
         </div>
       ) : (
-        <div className="row muted small">
-          <button className="link-btn" onClick={hub.signIn}>
+        <div className="small muted">
+          <button className="link" onClick={hub.signIn}>
             Sign in
-          </button>
+          </button>{" "}
           to leave a review.
         </div>
       )}
       {reviews.map((r) => (
         <div className="review" key={r.id}>
-          <div className="post-meta">
+          <div className="meta">
             <span className="stars">{"★".repeat(r.rating)}</span>
             <span>{r.author.name}</span>
             <span>{timeAgo(r.createdAt)}</span>
@@ -265,246 +390,51 @@ function Reviews({ hub, slug }: { hub: Hub; slug: string }) {
           <div>{r.body}</div>
         </div>
       ))}
-      {reviews.length === 0 && <div className="muted small" style={{ marginTop: 12 }}>No reviews yet.</div>}
-    </>
-  );
-}
-
-function InstallButton({ hub, tool }: { hub: Hub; tool: Tool }) {
-  const installed = hub.library.find((l) => l.slug === tool.slug);
-  const p = hub.progress[tool.slug];
-  const supported = tool.platforms.includes(platform) && !!tool.downloads[platform];
-  if (p) {
-    const pct = p.total ? p.received / p.total : 0;
-    return (
-      <div style={{ textAlign: "right" }}>
-        <div className="small muted" style={{ marginBottom: 6 }}>
-          {p.stage === "downloading"
-            ? `Downloading${p.total ? ` ${Math.round(pct * 100)}%` : ` ${(p.received / 1048576).toFixed(0)} MB`}`
-            : p.stage === "extracting"
-              ? "Unpacking…"
-              : "Installing…"}
+      {reviews.length === 0 && (
+        <div className="small muted" style={{ marginTop: 12 }}>
+          No reviews yet.
         </div>
-        <div className="progress">
-          <div style={{ transform: `scaleX(${p.total ? pct : 0.15})` }} />
-        </div>
-      </div>
-    );
-  }
-  if (!supported) return <button className="btn" disabled>Not on {platform === "mac" ? "macOS" : "Windows"} yet</button>;
-  if (!installed)
-    return (
-      <button className="btn primary" onClick={() => hub.install(tool)}>
-        {tool.priceCents ? `Get · $${(tool.priceCents / 100).toFixed(0)}` : "Install"}
-      </button>
-    );
-  const update = installed.version !== tool.version;
-  return (
-    <>
-      {update && (
-        <button className="btn" onClick={() => hub.install(tool)}>
-          Update to {tool.version}
-        </button>
-      )}
-      {tool.kind !== "builtin" && (
-        <button className="btn primary" onClick={() => hub.launch(tool.slug)}>
-          Open
-        </button>
       )}
     </>
   );
 }
 
-export function ToolDetail({ hub, slug }: { hub: Hub; slug: string }) {
-  const tool = hub.tools.find((t) => t.slug === slug);
-  if (!tool) return <div className="empty">Loading…</div>;
-  const installed = hub.library.find((l) => l.slug === slug);
+// ---------------- Library ----------------
+
+export function LibraryPage({ hub }: { hub: Hub }) {
+  const mine = hub.tools.filter((t) => hub.library.some((l) => l.slug === t.slug));
   return (
     <>
-      <button className="link-btn back" onClick={() => hub.go({ page: "tools" })}>
-        ← Tools
-      </button>
-      <div className="detail-head">
-        <Icon item={tool} size="lg" />
-        <div>
-          <h1>{tool.name}</h1>
-          <div className="muted">{tool.tagline}</div>
-          <div className="row" style={{ marginTop: 8 }}>
-            <Price cents={tool.priceCents} />
-            <Replaces t={tool} />
-            <PrivacyBadge privacy={tool.privacy} />
-            <Stars rating={tool.rating} count={tool.reviewCount} />
-          </div>
-        </div>
-        <div className="detail-actions">
-          <InstallButton hub={hub} tool={tool} />
-        </div>
-      </div>
-      <Screenshots item={tool} />
-      <Facts item={tool} />
-      {tool.slug === "toolbay-flow" && <FlowPanel hub={hub} installed={!!installed} />}
-      <h2>About</h2>
-      <div className="prose">{tool.description}</div>
-      <Source item={tool} />
-      {installed && tool.kind !== "builtin" && (
-        <>
-          <h2>Installed</h2>
-          <div className="row">
-            <span className="muted small" style={{ flex: 1 }}>
-              Version {installed.version}, installed {timeAgo(installed.installedAt)}
-            </span>
-            <button className="btn" onClick={() => native.reveal(slug).catch((e) => hub.toast(String(e)))}>
-              Show files
-            </button>
-            <button className="btn danger" onClick={() => hub.uninstall(slug)}>
-              Uninstall
-            </button>
-          </div>
-        </>
-      )}
-      {installed && tool.kind === "builtin" && (
-        <div className="row" style={{ marginTop: 24 }}>
-          <div style={{ flex: 1 }} />
-          <button className="btn danger" onClick={() => hub.uninstall(slug)}>
-            Remove from library
+      <h1>Library</h1>
+      <p className="lede">Everything you've installed. Updates happen by themselves.</p>
+      {hub.library.length === 0 ? (
+        <div className="empty">
+          Nothing installed yet.{" "}
+          <button className="link" onClick={() => hub.go({ page: "tools" })}>
+            Find a tool
           </button>
         </div>
+      ) : (
+        <div className="panel">
+          {hub.library.map((l) => {
+            const t = mine.find((x) => x.slug === l.slug);
+            return (
+              <div className="list-row clickable" key={l.slug} onClick={() => hub.go({ page: "tools", slug: l.slug })}>
+                {t ? <Icon tool={t} /> : <div className="icon">{l.name.charAt(0)}</div>}
+                <div className="grow">
+                  <div className="title">{l.name}</div>
+                  <div className="small muted">
+                    {hub.running.includes(l.slug) ? "Running" : `Version ${l.version}`}
+                  </div>
+                </div>
+                <div onClick={(e) => e.stopPropagation()}>
+                  {t && <ActionButton hub={hub} tool={t} />}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
-      <Reviews hub={hub} slug={slug} />
-    </>
-  );
-}
-
-export function SkillDetail({ hub, slug }: { hub: Hub; slug: string }) {
-  const skill = hub.skills.find((s) => s.slug === slug) as Skill | undefined;
-  const [busy, setBusy] = useState(false);
-  if (!skill) return <div className="empty">Loading…</div>;
-  const cmd = skill.install ?? `npx toolbay add ${skill.slug}`;
-  const install = async () => {
-    setBusy(true);
-    try {
-      await native.installSkill(skill.slug);
-      hub.toast(`${skill.name} installed for Claude Code`);
-    } catch (e) {
-      hub.toast(String(e).slice(0, 160));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <>
-      <button className="link-btn back" onClick={() => hub.go({ page: "skills" })}>
-        ← Skills
-      </button>
-      <div className="detail-head">
-        <Icon item={skill} size="lg" />
-        <div>
-          <h1>{skill.name}</h1>
-          <div className="muted">{skill.tagline}</div>
-          <div className="row" style={{ marginTop: 8 }}>
-            <Price cents={skill.priceCents} />
-            <PrivacyBadge privacy={skill.privacy} />
-            <Stars rating={skill.rating} count={skill.reviewCount} />
-          </div>
-        </div>
-        <div className="detail-actions">
-          <button className="btn primary" disabled={busy || !isTauri} onClick={install}>
-            {busy ? "Installing…" : "Install"}
-          </button>
-        </div>
-      </div>
-      <Facts item={skill} />
-      <h2>About</h2>
-      <div className="prose">{skill.description}</div>
-      <h2>Install from a terminal</h2>
-      <code className="cmd">{cmd}</code>
-      <Source item={skill} />
-    </>
-  );
-}
-
-// ---------------- Toolbay Flow panel ----------------
-
-function FlowPanel({ hub, installed }: { hub: Hub; installed: boolean }) {
-  const [s, setS] = useState<FlowStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (!isTauri) return;
-    native.flowStatus().then(setS);
-    const un = native.onFlow(setS);
-    return () => {
-      un.then((f) => f());
-    };
-  }, []);
-  if (!installed || !s) return null;
-  const p = hub.progress["toolbay-flow"];
-  const download = async () => {
-    setBusy(true);
-    try {
-      setS(await native.flowDownloadModel());
-    } catch (e) {
-      hub.toast(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const toggle = async () => {
-    try {
-      setS(await native.flowEnable(s.state === "off"));
-    } catch (e) {
-      hub.toast(String(e));
-    }
-  };
-  const label: Record<string, string> = {
-    off: "Off",
-    idle: "Ready. Hold the keys and talk.",
-    recording: "Listening…",
-    transcribing: "Transcribing…",
-    error: s.message ?? "Something went wrong.",
-  };
-  return (
-    <>
-      <h2>Dictation</h2>
-      <div className="list">
-        <div className="list-row">
-          <div className="grow">
-            <div style={{ fontWeight: 550 }}>Speech model</div>
-            <div className="muted small">
-              {s.modelReady ? "whisper base.en, on this computer" : "About 150 MB, downloaded once. Runs offline."}
-            </div>
-          </div>
-          {s.modelReady ? (
-            <span className="badge passed">Ready</span>
-          ) : p || busy ? (
-            <span className="muted small">
-              {p?.total ? `${Math.round((p.received / p.total) * 100)}%` : `${((p?.received ?? 0) / 1048576).toFixed(0)} MB`}
-            </span>
-          ) : (
-            <button className="btn primary" onClick={download}>
-              Download model
-            </button>
-          )}
-        </div>
-        <div className="list-row">
-          <div className="grow">
-            <div style={{ fontWeight: 550 }}>
-              Hold <span className="kbd">{s.hotkey.replace(/\+/g, " + ")}</span> to dictate
-            </div>
-            <div className="muted small">{label[s.state] ?? s.state}</div>
-          </div>
-          <button className={`btn ${s.state === "off" ? "primary" : ""}`} disabled={!s.modelReady} onClick={toggle}>
-            {s.state === "off" ? "Turn on" : "Turn off"}
-          </button>
-        </div>
-        {s.lastText && (
-          <div className="list-row">
-            <div className="grow">
-              <div className="muted small">Last dictation</div>
-              <div>{s.lastText}</div>
-            </div>
-          </div>
-        )}
-      </div>
     </>
   );
 }
@@ -520,105 +450,57 @@ export function CommunityPage({ hub }: { hub: Hub }) {
       await api.createPost(body.trim());
       setBody("");
       await hub.refreshPosts();
-    } catch (e) {
-      hub.toast(`Couldn't post: ${e}`);
+    } catch {
+      hub.toast("Your post didn't go through. Check your internet connection and try again.");
     } finally {
       setBusy(false);
     }
   };
   return (
     <>
-      <h1 className="display">Community</h1>
-      <p className="lede">What people are building, fixing and asking about.</p>
+      <h1>Community</h1>
+      <p className="lede">Tips, questions and what people are making with their tools.</p>
       {hub.user ? (
         <div className="composer">
           <textarea placeholder="Share something…" value={body} onChange={(e) => setBody(e.target.value)} />
-          <div className="row">
-            <div style={{ flex: 1 }} />
+          <div className="row" style={{ justifyContent: "flex-end" }}>
             <button className="btn primary" disabled={!body.trim() || busy} onClick={submit}>
               Post
             </button>
           </div>
         </div>
       ) : (
-        <div className="row muted small">
-          <button className="link-btn" onClick={hub.signIn}>
+        <div className="small muted">
+          <button className="link" onClick={hub.signIn}>
             Sign in
-          </button>
+          </button>{" "}
           to post.
         </div>
       )}
       <div style={{ marginTop: 16 }}>
         {hub.posts.map((p) => (
           <div className="post" key={p.id}>
-            <div className="post-meta">
+            <div className="meta">
               <div className="avatar">{p.author.name.charAt(0)}</div>
-              <span style={{ color: "var(--fg)", fontWeight: 550 }}>{p.author.name}</span>
-              <span>@{p.author.handle}</span>
+              <span style={{ color: "var(--text)", fontWeight: 600 }}>{p.author.name}</span>
               <span>· {timeAgo(p.createdAt)}</span>
-              {p.toolSlug && (
-                <button className="link-btn" onClick={() => hub.go({ page: "tools", slug: p.toolSlug! })}>
-                  · {hub.tools.find((t) => t.slug === p.toolSlug)?.name ?? p.toolSlug}
-                </button>
-              )}
             </div>
             <div className="prose" style={{ fontSize: 15, lineHeight: "22px" }}>
               {p.body}
             </div>
+            {!!p.reactions?.length && (
+              <div className="row small muted" style={{ marginTop: 8, gap: 8 }}>
+                {p.reactions.map((r) => (
+                  <span key={r.kind} className="chip">
+                    {r.emoji} {r.count}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         ))}
-        {hub.posts.length === 0 && <div className="empty">No posts yet.</div>}
+        {hub.posts.length === 0 && <div className="empty">No posts yet. Be the first to say hello.</div>}
       </div>
-    </>
-  );
-}
-
-// ---------------- Library ----------------
-
-export function LibraryPage({ hub }: { hub: Hub }) {
-  return (
-    <>
-      <h1 className="display">Library</h1>
-      <p className="lede">Everything you've installed. Updates show up here.</p>
-      {hub.library.length === 0 ? (
-        <div className="empty">
-          Nothing installed yet.{" "}
-          <button className="link-btn" onClick={() => hub.go({ page: "tools" })}>
-            Browse tools
-          </button>
-        </div>
-      ) : (
-        <div className="list">
-          {hub.library.map((l) => {
-            const t = hub.tools.find((x) => x.slug === l.slug);
-            const update = t && t.version !== l.version;
-            return (
-              <div className="list-row clickable" key={l.slug} onClick={() => hub.go({ page: "tools", slug: l.slug })}>
-                {t ? <Icon item={t} /> : <div className="icon" />}
-                <div className="grow">
-                  <div className="tile-name">{l.name}</div>
-                  <div className="muted small">
-                    {l.version}
-                    {update && ` · update to ${t!.version} available`}
-                  </div>
-                </div>
-                <div className="row" onClick={(e) => e.stopPropagation()}>
-                  {update && t && (
-                    <button className="btn" onClick={() => hub.install(t)}>
-                      Update
-                    </button>
-                  )}
-                  {t?.kind !== "builtin" && (
-                    <button className="btn primary" onClick={() => hub.launch(l.slug)}>
-                      Open
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
     </>
   );
 }
@@ -627,7 +509,7 @@ export function LibraryPage({ hub }: { hub: Hub }) {
 
 export function SettingsPage({ hub, setUser }: { hub: Hub; setUser: (u: User | null) => void }) {
   const [settings, setSettings] = useState<Record<string, string>>({});
-  const [update, setUpdate] = useState<string>("");
+  const [update, setUpdate] = useState("");
   useEffect(() => {
     native.settings().then(setSettings);
   }, []);
@@ -635,29 +517,29 @@ export function SettingsPage({ hub, setUser }: { hub: Hub; setUser: (u: User | n
     await native.setSetting(key, value);
     setSettings((s) => ({ ...s, [key]: value }));
   };
-  const theme = settings.theme === "dark" ? "dark" : "light";
   const checkUpdate = async () => {
     setUpdate("Checking…");
     try {
       const { check } = await import("@tauri-apps/plugin-updater");
       const u = await check();
-      if (!u) return setUpdate("You're on the latest version.");
-      setUpdate(`Downloading ${u.version}…`);
+      if (!u) return setUpdate("You have the latest version.");
+      setUpdate(`Installing Toolbay ${u.version}…`);
       await u.downloadAndInstall();
       const { relaunch } = await import("@tauri-apps/plugin-process");
       await relaunch();
-    } catch (e) {
-      setUpdate(`Couldn't check for updates: ${e}`);
+    } catch {
+      setUpdate("Couldn't check for updates. Check your internet connection and try again.");
     }
   };
+  const auto = settings.autoUpdate !== "false";
   return (
     <>
-      <h1 className="display">Settings</h1>
+      <h1>Settings</h1>
       <div className="settings-row">
         <div className="grow">
-          <div style={{ fontWeight: 550 }}>Account</div>
-          <div className="muted small">
-            {hub.user ? `Signed in as ${hub.user.name || hub.user.handle}` : "Sign in on toolbay.ai to review and post."}
+          <div className="title">Account</div>
+          <div className="small muted">
+            {hub.user ? `Signed in as ${hub.user.name || hub.user.handle}.` : "Sign in to leave reviews and post. Your browser opens to finish."}
           </div>
         </div>
         {hub.user ? (
@@ -672,31 +554,28 @@ export function SettingsPage({ hub, setUser }: { hub: Hub; setUser: (u: User | n
           </button>
         ) : (
           <button className="btn primary" onClick={hub.signIn}>
-            Sign in with browser
+            Sign in
           </button>
         )}
       </div>
       <div className="settings-row">
         <div className="grow">
-          <div style={{ fontWeight: 550 }}>Appearance</div>
+          <div className="title">Update tools by themselves</div>
+          <div className="small muted">New versions install quietly when the tool isn't open.</div>
         </div>
-        {(["light", "dark"] as const).map((t) => (
-          <button
-            key={t}
-            className={`chip ${theme === t ? "active" : ""}`}
-            onClick={() => {
-              document.documentElement.dataset.theme = t;
-              set("theme", t);
-            }}
-          >
-            {t === "light" ? "Light" : "Dark"}
+        <div className="seg">
+          <button className={auto ? "on" : ""} onClick={() => set("autoUpdate", "true")}>
+            On
           </button>
-        ))}
+          <button className={!auto ? "on" : ""} onClick={() => set("autoUpdate", "false")}>
+            Off
+          </button>
+        </div>
       </div>
       <div className="settings-row">
         <div className="grow">
-          <div style={{ fontWeight: 550 }}>Updates</div>
-          <div className="muted small">{update || "Toolbay updates itself from signed GitHub releases."}</div>
+          <div className="title">Toolbay</div>
+          <div className="small muted">{update || "Version 0.1.0"}</div>
         </div>
         <button className="btn" disabled={!isTauri} onClick={checkUpdate}>
           Check for updates
@@ -704,24 +583,11 @@ export function SettingsPage({ hub, setUser }: { hub: Hub; setUser: (u: User | n
       </div>
       <div className="settings-row">
         <div className="grow">
-          <div style={{ fontWeight: 550 }}>Catalog server</div>
-          <div className="muted small">For development. Leave empty for toolbay.ai. Restart to apply.</div>
-        </div>
-        <input
-          className="search"
-          style={{ maxWidth: 260 }}
-          placeholder="https://toolbay.ai"
-          defaultValue={settings.apiBase ?? ""}
-          onBlur={(e) => set("apiBase", e.target.value.trim())}
-        />
-      </div>
-      <div className="settings-row">
-        <div className="grow">
-          <div style={{ fontWeight: 550 }}>About</div>
-          <div className="muted small">Toolbay 0.1.0 · MIT · open source</div>
+          <div className="title">Source code</div>
+          <div className="small muted">Toolbay is free and open source (MIT).</div>
         </div>
         <button className="btn" onClick={() => open("https://github.com/sriptcollector/toolbay-desktop")}>
-          Source code
+          View code
         </button>
       </div>
     </>

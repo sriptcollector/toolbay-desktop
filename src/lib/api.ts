@@ -2,9 +2,8 @@
 // and fall back to bundled fixtures while the site API is not live.
 import { invoke } from "@tauri-apps/api/core";
 import toolsFixture from "../fixtures/tools.json";
-import skillsFixture from "../fixtures/skills.json";
 import postsFixture from "../fixtures/posts.json";
-import type { Post, Review, Skill, Tool } from "./types";
+import type { Post, Review, Tool } from "./types";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -40,20 +39,33 @@ async function withFallback<T>(path: string, fallback: T, pick: (j: any) => T): 
   }
 }
 
+// Logos bundled with the app, used when the catalog has none yet.
+const BUNDLED_ICONS: Record<string, string> = { "toolbay-flow": "/tools/toolbay-flow.png" };
+
+/** Fill gaps in catalog entries so every screen can rely on the same shape. */
+function normalize(t: Tool & { replaces?: string | null }): Tool {
+  const inspiredBy =
+    t.inspiredBy ?? (t.replaces ? { name: t.replaces, company: `the makers of ${t.replaces}` } : null);
+  let iconUrl = t.iconUrl || BUNDLED_ICONS[t.slug] || "";
+  if (iconUrl.startsWith("/") && !BUNDLED_ICONS[t.slug]) iconUrl = `https://toolbay.ai${iconUrl}`;
+  return { ...t, inspiredBy, iconUrl, screenshots: t.screenshots ?? [], platforms: t.platforms ?? [] };
+}
+
 export const api = {
-  tools: () => withFallback<Tool[]>("/api/v1/tools", toolsFixture.tools as Tool[], (j) => j.tools),
+  tools: () =>
+    withFallback<Tool[]>("/api/v1/tools", (toolsFixture.tools as Tool[]).map(normalize), (j) =>
+      Array.isArray(j.tools) ? j.tools.map(normalize) : undefined,
+    ),
   tool: (slug: string) =>
     withFallback<Tool | undefined>(
       `/api/v1/tools/${slug}`,
       (toolsFixture.tools as Tool[]).find((t) => t.slug === slug),
       (j) => j.tool ?? j,
     ),
-  skills: () => withFallback<Skill[]>("/api/v1/skills", skillsFixture.skills as Skill[], (j) => j.skills),
   reviews: (slug: string) =>
     withFallback<Review[]>(`/api/v1/tools/${slug}/reviews`, [], (j) => j.reviews),
   postReview: (slug: string, rating: number, body: string) =>
     request<{ review: Review }>("POST", `/api/v1/tools/${slug}/reviews`, { rating, body }),
   posts: () => withFallback<Post[]>("/api/v1/community/posts", postsFixture.posts as Post[], (j) => j.posts),
-  createPost: (body: string, toolSlug?: string) =>
-    request<{ post: Post }>("POST", "/api/v1/community/posts", { body, toolSlug: toolSlug ?? null }),
+  createPost: (body: string) => request<{ post: Post }>("POST", "/api/v1/community/posts", { body }),
 };

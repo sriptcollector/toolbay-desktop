@@ -1,22 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { api, isTauri } from "./lib/api";
 import { native, type Progress } from "./lib/native";
-import type { InstalledTool, Post, Skill, Tool, User } from "./lib/types";
+import type { InstalledTool, Post, Tool, User } from "./lib/types";
 import { NavIcon } from "./components";
 import logo from "./assets/logo.png";
-import {
-  CommunityPage,
-  HomePage,
-  LibraryPage,
-  SettingsPage,
-  SkillDetail,
-  SkillsPage,
-  ToolDetail,
-  ToolsPage,
-} from "./screens";
+import { CommunityPage, HomePage, LibraryPage, SettingsPage, ToolDetail, ToolsPage } from "./screens";
 
-export type Page = "home" | "tools" | "skills" | "community" | "library" | "settings";
+export type Page = "home" | "tools" | "community" | "library" | "settings";
 export interface Route {
   page: Page;
   slug?: string;
@@ -24,17 +14,20 @@ export interface Route {
 
 export interface Hub {
   tools: Tool[];
-  skills: Skill[];
   posts: Post[];
   library: InstalledTool[];
+  running: string[];
   user: User | null;
   live: boolean;
   progress: Record<string, Progress>;
+  /** Slug of a tool that just finished installing (to offer a desktop shortcut). */
+  justInstalled: string | null;
+  setJustInstalled: (s: string | null) => void;
   go: (r: Route) => void;
   toast: (m: string) => void;
   install: (t: Tool) => Promise<void>;
-  uninstall: (slug: string) => Promise<void>;
-  launch: (slug: string) => Promise<void>;
+  uninstall: (t: Tool) => Promise<void>;
+  launch: (t: Tool) => Promise<void>;
   refreshPosts: () => Promise<void>;
   signIn: () => void;
 }
@@ -42,57 +35,75 @@ export interface Hub {
 const NAV: { page: Page; label: string }[] = [
   { page: "home", label: "Home" },
   { page: "tools", label: "Tools" },
-  { page: "skills", label: "Skills" },
-  { page: "community", label: "Community" },
   { page: "library", label: "Library" },
+  { page: "community", label: "Community" },
 ];
+
+/** Keep Toolbay itself up to date without asking: download, install quietly, restart. */
+async function updateHubQuietly() {
+  try {
+    const { check } = await import("@tauri-apps/plugin-updater");
+    const update = await check();
+    if (!update) return;
+    if ((await native.running()).length > 0) return; // don't restart while a tool is open
+    await update.downloadAndInstall();
+    const { relaunch } = await import("@tauri-apps/plugin-process");
+    await relaunch();
+  } catch {
+    // Offline or no release yet: try again next launch.
+  }
+}
 
 export default function App() {
   const [route, setRoute] = useState<Route>({ page: "home" });
   const [tools, setTools] = useState<Tool[]>([]);
-  const [skills, setSkills] = useState<Skill[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [library, setLibrary] = useState<InstalledTool[]>([]);
+  const [running, setRunning] = useState<string[]>([]);
   const [user, setUser] = useState<User | null>(null);
   const [live, setLive] = useState(true);
   const [progress, setProgress] = useState<Record<string, Progress>>({});
+  const [justInstalled, setJustInstalled] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const toast = useCallback((m: string) => {
     setToastMsg(m);
-    window.setTimeout(() => setToastMsg((cur) => (cur === m ? null : cur)), 3500);
+    window.setTimeout(() => setToastMsg((cur) => (cur === m ? null : cur)), 4500);
   }, []);
-
   const refreshLibrary = useCallback(() => native.library().then(setLibrary), []);
-  const refreshPosts = useCallback(async () => {
-    const r = await api.posts();
-    setPosts(r.data);
-  }, []);
+  const refreshPosts = useCallback(async () => setPosts((await api.posts()).data), []);
 
   useEffect(() => {
-    Promise.all([api.tools(), api.skills(), api.posts()]).then(([t, s, p]) => {
+    Promise.all([api.tools(), api.posts()]).then(([t, p]) => {
       setTools(t.data);
-      setSkills(s.data);
       setPosts(p.data);
-      setLive(t.live && s.live);
+      setLive(t.live);
     });
     refreshLibrary();
+    native.running().then(setRunning);
+    if (isTauri) updateHubQuietly();
     native.me().then(setUser);
-    native.settings().then((s) => {
-      document.documentElement.dataset.theme = s.theme === "dark" ? "dark" : "light";
-    });
     const subs = [
-      native.onProgress((p) => setProgress((cur) => ({ ...cur, [p.slug]: p }))),
+      native.onProgress((p) =>
+        setProgress((cur) => {
+          if (p.stage === "done" || p.stage === "error") {
+            const { [p.slug]: _, ...rest } = cur;
+            return rest;
+          }
+          return { ...cur, [p.slug]: p };
+        }),
+      ),
+      native.onRunning(({ slug, running }) =>
+        setRunning((cur) => (running ? [...new Set([...cur, slug])] : cur.filter((s) => s !== slug))),
+      ),
+      native.onLibrary(refreshLibrary),
+      native.onUpdated((u) => toast(`${u.name} was updated to ${u.version}.`)),
       native.onAuth((u) => {
         setUser(u);
-        if (u) toast(`Signed in as ${u.name || u.handle}`);
+        if (u) toast(`You're signed in as ${u.name || u.handle}.`);
       }),
-      native.onAuthError(toast),
-      isTauri
-        ? listen<{ kind: string; slug: string }>("open-route", (e) =>
-            setRoute({ page: e.payload.kind === "skill" ? "skills" : "tools", slug: e.payload.slug }),
-          )
-        : Promise.resolve(() => {}),
+      native.onError(toast),
+      native.onRoute((r) => setRoute({ page: "tools", slug: r.slug })),
     ];
     return () => {
       subs.forEach((p) => p.then((un) => un()));
@@ -102,57 +113,52 @@ export default function App() {
   const hub: Hub = useMemo(
     () => ({
       tools,
-      skills,
       posts,
       library,
+      running,
       user,
       live,
       progress,
+      justInstalled,
+      setJustInstalled,
       go: setRoute,
       toast,
       refreshPosts,
       signIn: () => native.signIn().catch((e) => toast(String(e))),
       install: async (t) => {
-        if (!isTauri) return toast("Install works in the desktop app.");
-        setProgress((cur) => ({ ...cur, [t.slug]: { slug: t.slug, stage: "downloading", received: 0, total: null } }));
+        if (!isTauri) return;
+        setProgress((cur) => ({ ...cur, [t.slug]: { slug: t.slug, stage: "preparing", received: 0, total: null } }));
         try {
           await native.install(t);
           await refreshLibrary();
-          toast(`${t.name} installed`);
+          setJustInstalled(t.slug);
         } catch (e) {
           toast(String(e));
-        } finally {
-          setProgress((cur) => {
-            const { [t.slug]: _, ...rest } = cur;
-            return rest;
-          });
         }
       },
-      uninstall: async (slug) => {
+      uninstall: async (t) => {
         try {
-          await native.uninstall(slug);
+          await native.uninstall(t.slug);
           await refreshLibrary();
-          toast("Uninstalled");
+          toast(`${t.name} was removed.`);
         } catch (e) {
           toast(String(e));
         }
       },
-      launch: async (slug) => {
+      launch: async (t) => {
         try {
-          await native.launch(slug);
+          await native.launch(t.slug);
         } catch (e) {
           toast(String(e));
         }
       },
     }),
-    [tools, skills, posts, library, user, live, progress, toast, refreshPosts, refreshLibrary],
+    [tools, posts, library, running, user, live, progress, justInstalled, toast, refreshPosts, refreshLibrary],
   );
 
   let body: React.ReactNode;
   if (route.page === "tools" && route.slug) body = <ToolDetail hub={hub} slug={route.slug} />;
-  else if (route.page === "skills" && route.slug) body = <SkillDetail hub={hub} slug={route.slug} />;
   else if (route.page === "tools") body = <ToolsPage hub={hub} />;
-  else if (route.page === "skills") body = <SkillsPage hub={hub} />;
   else if (route.page === "community") body = <CommunityPage hub={hub} />;
   else if (route.page === "library") body = <LibraryPage hub={hub} />;
   else if (route.page === "settings") body = <SettingsPage hub={hub} setUser={setUser} />;
@@ -162,9 +168,7 @@ export default function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="logo">
-          <div className="logo-mark">
-            <img src={logo} alt="" />
-          </div>
+          <img src={logo} alt="" />
           toolbay
         </div>
         {NAV.map((n) => (
@@ -178,7 +182,7 @@ export default function App() {
             {n.page === "library" && library.length > 0 && <span className="nav-count">{library.length}</span>}
           </button>
         ))}
-        <div className="sidebar-spacer" />
+        <div className="spacer" />
         <button
           className={`nav-item ${route.page === "settings" ? "active" : ""}`}
           onClick={() => setRoute({ page: "settings" })}
@@ -199,13 +203,9 @@ export default function App() {
         )}
       </aside>
       <main className="main">
-        <div className="card">
-          <div className="content" key={`${route.page}/${route.slug ?? ""}`}>
-            {!live && (
-              <div className="banner">Showing sample data. The Toolbay catalog API isn't reachable yet.</div>
-            )}
-            {body}
-          </div>
+        <div className="content" key={`${route.page}/${route.slug ?? ""}`}>
+          {!live && <div className="banner">Couldn't reach toolbay.ai, so this list may be out of date.</div>}
+          {body}
         </div>
       </main>
       {toastMsg && <div className="toast">{toastMsg}</div>}

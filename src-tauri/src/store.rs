@@ -11,12 +11,6 @@ pub fn data_dir(app: &AppHandle) -> PathBuf {
     dir
 }
 
-pub fn tools_dir(app: &AppHandle) -> PathBuf {
-    let dir = data_dir(app).join("tools");
-    std::fs::create_dir_all(&dir).ok();
-    dir
-}
-
 fn read_json<T: for<'de> Deserialize<'de> + Default>(path: PathBuf) -> T {
     std::fs::read_to_string(path)
         .ok()
@@ -57,16 +51,27 @@ pub fn settings_set(app: AppHandle, key: String, value: String) -> Result<(), St
 
 // ---- library (installed tools) ----
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
 pub struct InstalledTool {
+    /// Catalog slug, e.g. "toolbay-flow".
     pub slug: String,
     pub name: String,
     pub version: String,
-    pub path: String,
-    pub launch_path: Option<String>,
-    #[serde(default)]
+    /// GitHub "owner/repo" the tool installs and updates from.
+    pub repo: String,
+    /// How it was installed: nsis | msi | zip | exe | dmg.
+    pub kind: String,
+    /// Folder the hub installed it into.
+    pub dir: String,
+    /// Program (or .app on macOS) to start.
+    pub exe: String,
     pub launch_args: Vec<String>,
+    /// Uninstaller to run before removing the folder (NSIS/MSI).
+    pub uninstaller: Option<String>,
+    /// Extra files (models, ...) placed in the tool's own data dir; removed on uninstall.
+    pub files: Vec<String>,
+    pub shortcut: Option<String>,
     pub installed_at: String,
 }
 
@@ -76,6 +81,13 @@ pub fn library(app: &AppHandle) -> Vec<InstalledTool> {
 
 pub fn save_library(app: &AppHandle, lib: &[InstalledTool]) -> Result<(), String> {
     write_json(data_dir(app).join("library.json"), &lib)
+}
+
+pub fn upsert(app: &AppHandle, entry: InstalledTool) -> Result<(), String> {
+    let mut lib = library(app);
+    lib.retain(|t| t.slug != entry.slug);
+    lib.push(entry);
+    save_library(app, &lib)
 }
 
 #[tauri::command]

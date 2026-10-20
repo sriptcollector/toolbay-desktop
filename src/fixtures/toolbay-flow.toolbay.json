@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "flow",
+  "name": "Toolbay Flow",
+  "tagline": "Free, local voice dictation in any app",
+  "version": "0.1.0",
+  "repo": "sriptcollector/toolbay-flow",
+  "identifier": "ai.toolbay.flow",
+  "license": "MIT",
+  "platforms": {
+    "windows-x86_64": {
+      "asset": "Toolbay.Flow_0.1.0_x64-setup.exe",
+      "kind": "nsis",
+      "silentArgs": ["/S"],
+      "exe": "toolbay-flow.exe"
+    },
+    "darwin-aarch64": { "asset": "Toolbay.Flow_0.1.0_aarch64.dmg", "kind": "dmg", "app": "Toolbay Flow.app" },
+    "darwin-x86_64": { "asset": "Toolbay.Flow_0.1.0_x64.dmg", "kind": "dmg", "app": "Toolbay Flow.app" }
+  },
+  "files": [
+    {
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
+      "size": 147964211,
+      "path": "models/ggml-base.en.bin"
+    }
+  ],
+  "launch": { "args": ["--from-toolbay"] }
+}

@@ -1,17 +1,36 @@
-//! Install, launch, update and uninstall tools.
+//! Install, launch, update and uninstall tools, driven by each tool's toolbay.json
+//! (see manifest.rs). One click does everything a tool needs: the program and its
+//! extra files (AI models), behind one progress bar, with no admin prompt.
 //!
-//! Every tool lives in its own folder under <app data>/tools/<slug>/<version>.
-//! Portable zips (the common case for open-source Windows releases) are unpacked
-//! there; a .dmg on macOS is mounted and its .app copied in; a setup .exe/.msi is
-//! handed to the OS installer. Updating = installing the new version, then
-//! removing the old folder.
+//! Where things go:
+//! - Windows: %LOCALAPPDATA%\Programs\Toolbay Tools\<id>\   (NSIS installers run with /S /D=<that>);
+//!   kept out of the hub's own folder so uninstalling the hub never touches tools.
+//! - macOS:   ~/Applications/Toolbay/<App>.app
+//! - Extra files: the tool's own app data dir (%APPDATA%\<identifier>, ~/Library/Application Support/<identifier>)
+use crate::manifest::{self, FileEntry, Resolved};
 use crate::store::{self, InstalledTool};
 use futures_util::StreamExt;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Emitter};
+use std::sync::Mutex;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 use tokio::io::AsyncWriteExt;
+
+const NO_INTERNET: &str = "The download stopped. Check your internet connection and try again.";
+const NO_SPACE: &str = "Couldn't save the download. Make sure your computer has free space, then try again.";
+const DAMAGED: &str = "The download was damaged on the way. Please try again.";
+
+/// Tools started from the hub that are still running: slug -> process id.
+#[derive(Default)]
+pub struct Running(pub Mutex<HashMap<String, u32>>);
+
+/// Installs in flight, so a second click (or the auto-updater) doesn't start another.
+#[derive(Default)]
+pub struct Busy(pub Mutex<HashSet<String>>);
 
 #[derive(Serialize, Clone)]
 struct Progress<'a> {
@@ -30,19 +49,66 @@ fn valid_slug(slug: &str) -> bool {
     !slug.is_empty() && slug.len() < 80 && slug.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
-#[tauri::command]
-pub async fn tool_install(
-    app: AppHandle,
-    slug: String,
-    name: String,
-    version: String,
-    url: String,
-    launch: Option<String>,
-) -> Result<InstalledTool, String> {
-    if !valid_slug(&slug) {
-        return Err("bad slug".into());
+fn tools_root(app: &AppHandle) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    let root = app.path().home_dir().expect("home").join("Applications").join("Toolbay");
+    #[cfg(not(target_os = "macos"))]
+    let root = app.path().local_data_dir().expect("local data").join("Programs").join("Toolbay Tools");
+    std::fs::create_dir_all(&root).ok();
+    root
+}
+
+/// The tool's own app data dir (Tauri's app_data_dir for its identifier), so files
+/// the hub downloads are exactly where the tool looks when it runs standalone.
+fn tool_data_dir(app: &AppHandle, r: &Resolved) -> PathBuf {
+    match r.manifest.identifier.as_deref() {
+        Some(id)
+            if !id.is_empty()
+                && !id.contains("..")
+                && id.chars().all(|c| c.is_ascii_alphanumeric() || ".-_".contains(c)) =>
+        {
+            app.path().data_dir().expect("data dir").join(id)
+        }
+        _ => store::data_dir(app).join("tool-data").join(sanitize(&r.manifest.id)),
     }
-    let result = install(&app, &slug, &name, &version, &url, launch.as_deref()).await;
+}
+
+fn sanitize(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || ".-_+ ".contains(c) { c } else { '_' })
+        .collect()
+}
+
+fn safe_rel(p: &str) -> bool {
+    !p.is_empty() && !p.contains("..") && !Path::new(p).is_absolute() && !p.starts_with(['/', '\\'])
+}
+
+fn local_path(url: &str) -> Option<PathBuf> {
+    let p = url.strip_prefix("file://")?.trim_start_matches('/');
+    Some(if cfg!(windows) { PathBuf::from(p) } else { PathBuf::from(format!("/{p}")) })
+}
+
+// ---------------------------------------------------------------- install
+
+/// Look up what installing a tool would fetch (size, version) without installing.
+#[tauri::command]
+pub async fn tool_resolve(app: AppHandle, slug: String, source: String) -> Result<Resolved, String> {
+    let source = store::setting(&app, &format!("source:{slug}")).unwrap_or(source);
+    manifest::resolve(&source).await
+}
+
+#[tauri::command]
+pub async fn tool_install(app: AppHandle, slug: String, source: String) -> Result<InstalledTool, String> {
+    if !valid_slug(&slug) {
+        return Err("Something went wrong. Please restart Toolbay and try again.".into());
+    }
+    // A dev/test override: settings "source:<slug>" = manifest URL or owner/repo.
+    let source = store::setting(&app, &format!("source:{slug}")).unwrap_or(source);
+    if !app.state::<Busy>().0.lock().unwrap().insert(slug.clone()) {
+        return Err("Already installing. One moment…".into());
+    }
+    let result = install(&app, &slug, &source).await;
+    app.state::<Busy>().0.lock().unwrap().remove(&slug);
     match &result {
         Ok(_) => emit(&app, &slug, "done", 0, None, None),
         Err(e) => emit(&app, &slug, "error", 0, None, Some(e.clone())),
@@ -50,189 +116,228 @@ pub async fn tool_install(
     result
 }
 
-/// `launch` is an optional catalog hint: a path inside the unpacked folder plus
-/// arguments, e.g. "espanso-portable/espansod.exe launcher".
-async fn install(
-    app: &AppHandle,
-    slug: &str,
-    name: &str,
-    version: &str,
-    url: &str,
-    launch: Option<&str>,
-) -> Result<InstalledTool, String> {
-    let now = chrono::Utc::now().to_rfc3339();
-
-    // Built-in tools ship inside this app; "installing" just adds them to the library.
-    if url.starts_with("builtin:") {
-        let entry = InstalledTool {
-            slug: slug.into(),
-            name: name.into(),
-            version: version.into(),
-            path: String::new(),
-            launch_path: None,
-            launch_args: vec![],
-            installed_at: now,
-        };
-        record(app, entry.clone())?;
-        return Ok(entry);
+async fn install(app: &AppHandle, slug: &str, source: &str) -> Result<InstalledTool, String> {
+    if is_running(app, slug) {
+        return Err("Close the tool first, then try again.".into());
     }
+    emit(app, slug, "preparing", 0, None, None);
+    let r = manifest::resolve(source).await?;
+    let kind = r.entry.kind.to_ascii_lowercase();
+    let data_dir = tool_data_dir(app, &r);
 
-    let parsed = url::Url::parse(url).map_err(|_| "This tool has no download for your computer yet.")?;
-    if parsed.scheme() != "https" {
-        return Err("Downloads must use https.".into());
-    }
-    let file_name = parsed
-        .path_segments()
-        .and_then(|mut s| s.next_back())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("download.bin")
-        .to_string();
-
-    let root = store::tools_dir(app).join(slug);
-    let dest = root.join(sanitize(version));
-    let staging = root.join("_download");
-    std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-    let file = staging.join(sanitize(&file_name));
-
-    download(app, slug, url, &file).await?;
-
-    let lower = file_name.to_ascii_lowercase();
-    if dest.exists() {
-        std::fs::remove_dir_all(&dest).ok();
-    }
-    std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
-
-    let launch_path: Option<PathBuf> = if lower.ends_with(".zip") {
-        emit(app, slug, "extracting", 0, None, None);
-        let (f, d) = (file.clone(), dest.clone());
-        tokio::task::spawn_blocking(move || unzip(&f, &d))
-            .await
-            .map_err(|e| e.to_string())??;
-        find_launchable(&dest, slug, name)
-    } else if lower.ends_with(".dmg") {
-        emit(app, slug, "installing", 0, None, None);
-        install_dmg(&file, &dest).await?;
-        find_launchable(&dest, slug, name)
-    } else if lower.ends_with(".msi") || ((lower.contains("setup") || lower.contains("installer")) && lower.ends_with(".exe")) {
-        // A real installer: hand off to it. The tool then lives wherever it installs itself.
-        emit(app, slug, "installing", 0, None, None);
-        let target = dest.join(sanitize(&file_name));
-        std::fs::rename(&file, &target).map_err(|e| e.to_string())?;
-        let status = if lower.ends_with(".msi") {
-            tokio::process::Command::new("msiexec").arg("/i").arg(&target).status().await
-        } else {
-            tokio::process::Command::new(&target).status().await
+    // Files still to fetch (skip ones already in place, e.g. a model kept from standalone use).
+    let mut todo: Vec<&FileEntry> = vec![];
+    for f in &r.manifest.files {
+        if !safe_rel(&f.path) {
+            return Err("This tool's download list looks wrong, so nothing was installed.".into());
         }
-        .map_err(|e| e.to_string())?;
-        if !status.success() {
-            return Err("The installer was closed or failed.".into());
+        let have = std::fs::metadata(data_dir.join(&f.path)).map(|m| m.len()).ok();
+        if have.is_none() || (f.size.is_some() && have != f.size) {
+            todo.push(f);
         }
-        None
-    } else if lower.ends_with(".exe") || lower.ends_with(".appimage") {
-        let target = dest.join(sanitize(&file_name));
-        std::fs::rename(&file, &target).map_err(|e| e.to_string())?;
-        Some(target)
-    } else {
-        return Err(format!("Don't know how to install {file_name}."));
+    }
+    let total: Option<u64> = r.entry.size.and_then(|s| todo.iter().try_fold(s, |acc, f| f.size.map(|z| acc + z)));
+
+    let staging = store::data_dir(app).join("downloads").join(sanitize(slug));
+    std::fs::create_dir_all(&staging).map_err(|_| NO_SPACE.to_string())?;
+    let file_name = r
+        .entry
+        .asset
+        .clone()
+        .or_else(|| r.download_url.rsplit(['/', '\\']).next().map(String::from))
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "download.bin".into());
+    let package = staging.join(sanitize(&file_name));
+
+    let mut received = 0u64;
+    download(app, slug, &r.download_url, &package, r.entry.sha256.as_deref(), &mut received, total).await?;
+    for f in &todo {
+        let dest = data_dir.join(&f.path);
+        if let Some(p) = dest.parent() {
+            std::fs::create_dir_all(p).map_err(|_| NO_SPACE.to_string())?;
+        }
+        let part = dest.with_extension("part");
+        download(app, slug, &f.url, &part, f.sha256.as_deref(), &mut received, total).await?;
+        std::fs::rename(&part, &dest).map_err(|_| NO_SPACE.to_string())?;
+    }
+
+    emit(app, slug, "installing", received, total, None);
+    let dir = tools_root(app).join(sanitize(&r.manifest.id));
+    let (exe, uninstaller) = match kind.as_str() {
+        "nsis" => install_nsis(&package, &dir, &r).await?,
+        "zip" => {
+            if dir.exists() {
+                std::fs::remove_dir_all(&dir).ok();
+            }
+            let (p, d) = (package.clone(), dir.clone());
+            tokio::task::spawn_blocking(move || unzip(&p, &d)).await.map_err(|e| e.to_string())??;
+            (program_in(&dir, r.entry.exe.as_deref())?, None)
+        }
+        "exe" => {
+            std::fs::create_dir_all(&dir).map_err(|_| NO_SPACE.to_string())?;
+            let name = r.entry.exe.clone().filter(|e| safe_rel(e)).unwrap_or(file_name.clone());
+            let target = dir.join(name);
+            std::fs::copy(&package, &target).map_err(|_| NO_SPACE.to_string())?;
+            (target, None)
+        }
+        "dmg" => (install_dmg(&package, &tools_root(app), r.entry.app.as_deref()).await?, None),
+        _ => return Err("This tool needs a newer version of Toolbay. Update Toolbay from Settings, then try again.".into()),
     };
     std::fs::remove_dir_all(&staging).ok();
 
-    // Drop older versions now that the new one is in place.
-    if let Ok(entries) = std::fs::read_dir(&root) {
-        for e in entries.flatten() {
-            if e.path() != dest {
-                std::fs::remove_dir_all(e.path()).ok();
-            }
-        }
-    }
-
-    // A catalog launch hint wins over the guess, if it points at a real file inside the folder.
-    let mut launch_args = vec![];
-    let mut launch_path = launch_path;
-    if let Some(hint) = launch.filter(|h| !h.trim().is_empty()) {
-        let mut parts = hint.split_whitespace();
-        let rel = parts.next().unwrap_or_default();
-        let candidate = dest.join(rel);
-        if !rel.contains("..") && candidate.exists() {
-            launch_path = Some(candidate);
-            launch_args = parts.map(String::from).collect();
-        }
-    }
-
+    let previous = store::library(app).into_iter().find(|t| t.slug == slug);
     let entry = InstalledTool {
         slug: slug.into(),
-        name: name.into(),
-        version: version.into(),
-        path: dest.to_string_lossy().into(),
-        launch_path: launch_path.map(|p| p.to_string_lossy().into()),
-        launch_args,
-        installed_at: now,
+        name: r.manifest.name.clone(),
+        version: r.manifest.version.clone(),
+        repo: if r.manifest.repo.is_empty() { source.into() } else { r.manifest.repo.clone() },
+        kind,
+        dir: if cfg!(target_os = "macos") { exe.to_string_lossy().into() } else { dir.to_string_lossy().into() },
+        exe: exe.to_string_lossy().into(),
+        launch_args: r.manifest.launch.args.clone(),
+        uninstaller: uninstaller.map(|u| u.to_string_lossy().into()),
+        files: r.manifest.files.iter().map(|f| data_dir.join(&f.path).to_string_lossy().into()).collect(),
+        shortcut: previous.and_then(|p| p.shortcut),
+        installed_at: chrono::Utc::now().to_rfc3339(),
     };
-    record(app, entry.clone())?;
+    store::upsert(app, entry.clone())?;
+    app.emit("library-changed", ()).ok();
     Ok(entry)
 }
 
-fn record(app: &AppHandle, entry: InstalledTool) -> Result<(), String> {
-    let mut lib = store::library(app);
-    lib.retain(|t| t.slug != entry.slug);
-    lib.push(entry);
-    store::save_library(app, &lib)
-}
-
-fn sanitize(s: &str) -> String {
-    s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || ".-_+".contains(c) { c } else { '_' })
-        .collect()
-}
-
-pub(crate) async fn download(app: &AppHandle, slug: &str, url: &str, to: &Path) -> Result<(), String> {
-    let res = reqwest::Client::builder()
-        .user_agent(concat!("ToolbayDesktop/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .map_err(|e| e.to_string())?
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("Download failed: {e}"))?;
-    if !res.status().is_success() {
-        return Err(format!("Download failed (HTTP {}).", res.status().as_u16()));
+async fn download(
+    app: &AppHandle,
+    slug: &str,
+    url: &str,
+    to: &Path,
+    sha256: Option<&str>,
+    received: &mut u64,
+    total: Option<u64>,
+) -> Result<(), String> {
+    let mut hasher = Sha256::new();
+    if let Some(src) = local_path(url) {
+        // Local packages, for development and tests.
+        let bytes = std::fs::read(&src).map_err(|_| NO_INTERNET.to_string())?;
+        hasher.update(&bytes);
+        std::fs::write(to, &bytes).map_err(|_| NO_SPACE.to_string())?;
+        *received += bytes.len() as u64;
+        emit(app, slug, "downloading", *received, total, None);
+    } else {
+        if !url.starts_with("https://") {
+            return Err("This tool's download isn't secure, so Toolbay didn't install it.".into());
+        }
+        let res = reqwest::Client::builder()
+            .user_agent(concat!("ToolbayDesktop/", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|e| e.to_string())?
+            .get(url)
+            .send()
+            .await
+            .map_err(|_| NO_INTERNET.to_string())?;
+        if !res.status().is_success() {
+            return Err("The download isn't available right now. Please try again later.".into());
+        }
+        let mut out = tokio::fs::File::create(to).await.map_err(|_| NO_SPACE.to_string())?;
+        let mut stream = res.bytes_stream();
+        let mut last = 0u64;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|_| NO_INTERNET.to_string())?;
+            hasher.update(&chunk);
+            out.write_all(&chunk).await.map_err(|_| NO_SPACE.to_string())?;
+            *received += chunk.len() as u64;
+            if *received - last > 512 * 1024 {
+                last = *received;
+                emit(app, slug, "downloading", *received, total, None);
+            }
+        }
+        out.flush().await.map_err(|_| NO_SPACE.to_string())?;
+        emit(app, slug, "downloading", *received, total, None);
     }
-    let total = res.content_length();
-    let mut out = tokio::fs::File::create(to).await.map_err(|e| e.to_string())?;
-    let mut stream = res.bytes_stream();
-    let mut received: u64 = 0;
-    let mut last_emit = 0u64;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("Download interrupted: {e}"))?;
-        out.write_all(&chunk).await.map_err(|e| e.to_string())?;
-        received += chunk.len() as u64;
-        if received - last_emit > 256 * 1024 {
-            last_emit = received;
-            emit(app, slug, "downloading", received, total, None);
+    if let Some(want) = sha256.filter(|s| !s.is_empty()) {
+        if hex::encode(hasher.finalize()) != want.to_ascii_lowercase() {
+            std::fs::remove_file(to).ok();
+            return Err(DAMAGED.into());
         }
     }
-    out.flush().await.map_err(|e| e.to_string())?;
-    emit(app, slug, "downloading", received, total, None);
     Ok(())
 }
 
+#[cfg(windows)]
+async fn install_nsis(package: &Path, dir: &Path, r: &Resolved) -> Result<(PathBuf, Option<PathBuf>), String> {
+    let mut args = if r.entry.silent_args.is_empty() { vec!["/S".to_string()] } else { r.entry.silent_args.clone() };
+    // NSIS wants /D= last and unquoted.
+    args.push(format!("/D={}", dir.display()));
+    let status = tokio::process::Command::new(package)
+        .args(&args)
+        .creation_flags(0x0800_0000)
+        .status()
+        .await
+        .map_err(|_| "Windows blocked the installer. Try again; if it keeps happening, restart your computer.".to_string())?;
+    if !status.success() {
+        return Err("The installer didn't finish. Please try again.".into());
+    }
+    let exe = program_in(dir, r.entry.exe.as_deref())?;
+    let named = r.entry.uninstaller.clone().filter(|u| safe_rel(u));
+    let un = named
+        .iter()
+        .map(String::as_str)
+        .chain(["uninstall.exe", "Uninstall.exe"])
+        .map(|n| dir.join(n))
+        .find(|p| p.exists());
+    Ok((exe, un))
+}
+
+#[cfg(not(windows))]
+async fn install_nsis(_package: &Path, _dir: &Path, _r: &Resolved) -> Result<(PathBuf, Option<PathBuf>), String> {
+    Err("This installer only runs on Windows.".into())
+}
+
+/// The program to start: the manifest's `exe` if present, else the shallowest .exe/.app.
+fn program_in(dir: &Path, exe: Option<&str>) -> Result<PathBuf, String> {
+    if let Some(e) = exe.filter(|e| safe_rel(e)) {
+        let p = dir.join(e);
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+    let mut found: Vec<PathBuf> = vec![];
+    let mut stack = vec![(dir.to_path_buf(), 0)];
+    while let Some((d, depth)) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            let name = p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+            if (name.ends_with(".exe") || name.ends_with(".app")) && !name.contains("unins") {
+                found.push(p);
+            } else if p.is_dir() && depth < 3 {
+                stack.push((p, depth + 1));
+            }
+        }
+    }
+    found.sort_by_key(|p| p.components().count());
+    found
+        .into_iter()
+        .next()
+        .ok_or_else(|| "Installed, but couldn't find the program to open. Please reinstall.".into())
+}
+
 pub(crate) fn unzip(file: &Path, dest: &Path) -> Result<(), String> {
-    let f = std::fs::File::open(file).map_err(|e| e.to_string())?;
-    let mut zip = zip::ZipArchive::new(f).map_err(|e| format!("Bad zip: {e}"))?;
+    let f = std::fs::File::open(file).map_err(|_| NO_SPACE.to_string())?;
+    let mut zip = zip::ZipArchive::new(f).map_err(|_| DAMAGED.to_string())?;
     for i in 0..zip.len() {
-        let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
+        let mut entry = zip.by_index(i).map_err(|_| DAMAGED.to_string())?;
         // enclosed_name rejects absolute paths and ../ traversal.
         let Some(rel) = entry.enclosed_name() else { continue };
         let out = dest.join(rel);
         if entry.is_dir() {
-            std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(&out).map_err(|_| NO_SPACE.to_string())?;
             continue;
         }
         if let Some(p) = out.parent() {
-            std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+            std::fs::create_dir_all(p).map_err(|_| NO_SPACE.to_string())?;
         }
-        let mut w = std::fs::File::create(&out).map_err(|e| e.to_string())?;
-        std::io::copy(&mut entry, &mut w).map_err(|e| e.to_string())?;
+        let mut w = std::fs::File::create(&out).map_err(|_| NO_SPACE.to_string())?;
+        std::io::copy(&mut entry, &mut w).map_err(|_| NO_SPACE.to_string())?;
         #[cfg(unix)]
         if let Some(mode) = entry.unix_mode() {
             use std::os::unix::fs::PermissionsExt;
@@ -243,159 +348,273 @@ pub(crate) fn unzip(file: &Path, dest: &Path) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-async fn install_dmg(file: &Path, dest: &Path) -> Result<(), String> {
-    let mount = dest.join("_mnt");
-    std::fs::create_dir_all(&mount).map_err(|e| e.to_string())?;
+async fn install_dmg(file: &Path, root: &Path, app_name: Option<&str>) -> Result<PathBuf, String> {
+    let mount = std::env::temp_dir().join(format!("toolbay-mnt-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&mount).map_err(|_| NO_SPACE.to_string())?;
     let ok = tokio::process::Command::new("hdiutil")
         .args(["attach", "-nobrowse", "-readonly", "-mountpoint"])
         .arg(&mount)
         .arg(file)
         .status()
         .await
-        .map_err(|e| e.to_string())?
-        .success();
+        .map(|s| s.success())
+        .unwrap_or(false);
     if !ok {
-        return Err("Could not open the disk image.".into());
+        return Err(DAMAGED.into());
     }
-    let mut copied = false;
-    if let Ok(entries) = std::fs::read_dir(&mount) {
-        for e in entries.flatten() {
-            if e.path().extension().is_some_and(|x| x == "app") {
-                copied = tokio::process::Command::new("cp")
-                    .arg("-R")
-                    .arg(e.path())
-                    .arg(dest)
-                    .status()
-                    .await
-                    .map(|s| s.success())
-                    .unwrap_or(false);
+    let src = std::fs::read_dir(&mount).into_iter().flatten().flatten().map(|e| e.path()).find(|p| match app_name {
+        Some(n) => p.file_name().is_some_and(|f| f == n),
+        None => p.extension().is_some_and(|x| x == "app"),
+    });
+    let result = match src {
+        Some(src) => {
+            let dest = root.join(src.file_name().unwrap());
+            if dest.exists() {
+                std::fs::remove_dir_all(&dest).ok();
             }
+            let copied = tokio::process::Command::new("ditto")
+                .arg(&src)
+                .arg(&dest)
+                .status()
+                .await
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if copied { Ok(dest) } else { Err(NO_SPACE.to_string()) }
         }
-    }
-    let _ = tokio::process::Command::new("hdiutil").arg("detach").arg(&mount).status().await;
+        None => Err("Installed, but couldn't find the app in the download. Please reinstall.".into()),
+    };
+    let _ = tokio::process::Command::new("hdiutil").args(["detach", "-quiet"]).arg(&mount).status().await;
     std::fs::remove_dir_all(&mount).ok();
-    if copied { Ok(()) } else { Err("No app found in the disk image.".into()) }
+    result
 }
 
 #[cfg(not(target_os = "macos"))]
-async fn install_dmg(_file: &Path, _dest: &Path) -> Result<(), String> {
-    Err("Disk images only install on macOS.".into())
+async fn install_dmg(_file: &Path, _root: &Path, _app: Option<&str>) -> Result<PathBuf, String> {
+    Err("This installer only runs on a Mac.".into())
 }
 
-/// Pick the program to start: the .app (mac) or the .exe whose name best matches the tool.
-fn find_launchable(dir: &Path, slug: &str, name: &str) -> Option<PathBuf> {
-    let want = |s: &str| s.to_ascii_lowercase().replace([' ', '-', '_'], "");
-    let (slug_k, name_k) = (want(slug), want(name));
-    let mut best: Option<(i32, PathBuf)> = None;
-    let mut stack = vec![(dir.to_path_buf(), 0)];
-    while let Some((d, depth)) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&d) else { continue };
-        for e in entries.flatten() {
-            let p = e.path();
-            let fname = p.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
-            let lower = fname.to_ascii_lowercase();
-            let is_app = cfg!(target_os = "macos") && lower.ends_with(".app");
-            let is_exe = cfg!(windows) && lower.ends_with(".exe");
-            if p.is_dir() && !is_app {
-                if depth < 4 {
-                    stack.push((p, depth + 1));
-                }
-                continue;
-            }
-            if !(is_app || is_exe) {
-                continue;
-            }
-            if ["unins", "uninstall", "setup", "crash", "update", "helper", "cli"].iter().any(|b| lower.contains(b)) {
-                continue;
-            }
-            let stem = want(lower.trim_end_matches(".exe").trim_end_matches(".app"));
-            let mut score = 10 - depth * 2;
-            if stem == slug_k || stem == name_k {
-                score += 20;
-            } else if stem.contains(&slug_k) || slug_k.contains(&stem) || stem.contains(&name_k) {
-                score += 10;
-            }
-            if best.as_ref().is_none_or(|(s, _)| score > *s) {
-                best = Some((score, p));
-            }
-        }
-    }
-    best.map(|(_, p)| p)
-}
+// ---------------------------------------------------------------- launch / stop
 
 fn find(app: &AppHandle, slug: &str) -> Result<InstalledTool, String> {
     store::library(app)
         .into_iter()
         .find(|t| t.slug == slug)
-        .ok_or_else(|| "Not installed.".to_string())
+        .ok_or_else(|| "This tool isn't installed. Click Install first.".to_string())
 }
 
+fn is_running(app: &AppHandle, slug: &str) -> bool {
+    app.state::<Running>().0.lock().unwrap().contains_key(slug)
+}
+
+/// Start the tool as its own app, signed in as the hub's user.
 #[tauri::command]
 pub fn tool_launch(app: AppHandle, slug: String) -> Result<(), String> {
     let tool = find(&app, &slug)?;
-    let Some(path) = tool.launch_path.clone().filter(|p| Path::new(p).exists()) else {
-        if !tool.path.is_empty() {
-            return app.opener().open_path(tool.path, None::<&str>).map_err(|e| e.to_string());
-        }
-        return Err("Nothing to launch for this tool.".into());
-    };
+    let exe = PathBuf::from(&tool.exe);
+    if !exe.exists() {
+        return Err(format!("{} seems to be missing. Click Reinstall on its page.", tool.name));
+    }
     #[cfg(target_os = "macos")]
-    {
-        let mut cmd = std::process::Command::new("open");
-        cmd.arg(&path);
+    let mut cmd = {
+        // `open -W` waits until the app quits, so we know when it stops running.
+        let mut c = std::process::Command::new("open");
+        c.arg("-W").arg("-a").arg(&exe);
         if !tool.launch_args.is_empty() {
-            cmd.arg("--args").args(&tool.launch_args);
+            c.arg("--args").args(&tool.launch_args);
         }
-        cmd.spawn().map_err(|e| e.to_string())?;
-    }
+        c
+    };
     #[cfg(not(target_os = "macos"))]
-    {
-        let p = Path::new(&path);
-        std::process::Command::new(p)
-            .args(&tool.launch_args)
-            .current_dir(p.parent().unwrap_or(Path::new(".")))
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
+    let mut cmd = {
+        let mut c = std::process::Command::new(&exe);
+        c.args(&tool.launch_args).current_dir(exe.parent().unwrap_or(Path::new(".")));
+        c
+    };
+    cmd.env("TOOLBAY_HUB", "1");
+    match crate::api::token() {
+        Some(t) => cmd.env("TOOLBAY_TOKEN", t),
+        None => cmd.env_remove("TOOLBAY_TOKEN"),
+    };
+    let mut child = cmd
+        .spawn()
+        .map_err(|_| format!("{} didn't start. Try again, or reinstall it from its page.", tool.name))?;
+    app.state::<Running>().0.lock().unwrap().insert(slug.clone(), child.id());
+    app.emit("tool-running", serde_json::json!({ "slug": slug, "running": true })).ok();
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        let _ = child.wait();
+        app2.state::<Running>().0.lock().unwrap().remove(&slug);
+        app2.emit("tool-running", serde_json::json!({ "slug": slug, "running": false })).ok();
+        // If an update arrived while it was open, apply it now that it's closed.
+        let app3 = app2.clone();
+        tauri::async_runtime::spawn(async move { update_one(&app3, &slug).await });
+    });
     Ok(())
+}
+
+#[tauri::command]
+pub fn tool_running(app: AppHandle) -> Vec<String> {
+    app.state::<Running>().0.lock().unwrap().keys().cloned().collect()
+}
+
+#[tauri::command]
+pub fn tool_stop(app: AppHandle, slug: String) {
+    let pid = app.state::<Running>().0.lock().unwrap().get(&slug).copied();
+    if let Some(pid) = pid {
+        kill(pid);
+    }
+}
+
+fn kill(pid: u32) {
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .creation_flags(0x0800_0000)
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
+    }
+}
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+// ---------------------------------------------------------------- uninstall
+
+#[tauri::command]
+pub async fn tool_uninstall(app: AppHandle, slug: String) -> Result<(), String> {
+    let tool = find(&app, &slug)?;
+    let pid = app.state::<Running>().0.lock().unwrap().get(&slug).copied();
+    if let Some(pid) = pid {
+        kill(pid);
+        tokio::time::sleep(Duration::from_millis(600)).await;
+    }
+    if let Some(un) = tool.uninstaller.as_ref().filter(|u| Path::new(u).exists()) {
+        #[cfg(windows)]
+        let _ = tokio::process::Command::new(un).arg("/S").creation_flags(0x0800_0000).status().await;
+        #[cfg(not(windows))]
+        let _ = un;
+        // NSIS uninstallers hand off to a temp copy and return early; give it a moment.
+        for _ in 0..40 {
+            if !Path::new(&tool.exe).exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
+    let dir = PathBuf::from(&tool.dir);
+    if dir.starts_with(tools_root(&app)) && dir.exists() {
+        std::fs::remove_dir_all(&dir)
+            .map_err(|_| format!("Couldn't remove {}. Close it if it's open, then try again.", tool.name))?;
+    }
+    for f in &tool.files {
+        std::fs::remove_file(f).ok();
+        // Tidy up folders the files left empty (stops at the first non-empty one).
+        let mut dir = Path::new(f).parent();
+        while let Some(d) = dir {
+            if std::fs::remove_dir(d).is_err() {
+                break;
+            }
+            dir = d.parent();
+        }
+    }
+    if let Some(s) = &tool.shortcut {
+        std::fs::remove_file(s).ok();
+    }
+    let mut lib = store::library(&app);
+    lib.retain(|t| t.slug != slug);
+    store::save_library(&app, &lib)?;
+    app.emit("library-changed", ()).ok();
+    Ok(())
+}
+
+// ---------------------------------------------------------------- desktop shortcut
+
+/// Windows: a .lnk on the desktop that opens the tool through Toolbay
+/// (toolbay://launch/<slug>), so it starts signed in. macOS: an alias to the app.
+#[tauri::command]
+pub fn tool_shortcut(app: AppHandle, slug: String) -> Result<String, String> {
+    let mut tool = find(&app, &slug)?;
+    let desktop = app.path().desktop_dir().map_err(|_| "Couldn't find your desktop folder.".to_string())?;
+    #[cfg(windows)]
+    let path = {
+        let link = desktop.join(format!("{}.lnk", sanitize(&tool.name)));
+        let hub = std::env::current_exe().map_err(|e| e.to_string())?;
+        let q = |p: &Path| p.to_string_lossy().replace('\'', "''");
+        let script = format!(
+            "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{}');$s.TargetPath='{}';$s.Arguments='toolbay://launch/{}';$s.IconLocation='{},0';$s.Description='{}';$s.Save()",
+            q(&link),
+            q(&hub),
+            slug,
+            q(Path::new(&tool.exe)),
+            tool.name.replace('\'', "''")
+        );
+        let ok = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(0x0800_0000)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok || !link.exists() {
+            return Err("Couldn't add the shortcut. Please try again.".into());
+        }
+        link
+    };
+    #[cfg(unix)]
+    let path = {
+        let link = desktop.join(Path::new(&tool.exe).file_name().unwrap_or_default());
+        std::fs::remove_file(&link).ok();
+        std::os::unix::fs::symlink(&tool.exe, &link).map_err(|_| "Couldn't add the shortcut. Please try again.".to_string())?;
+        link
+    };
+    tool.shortcut = Some(path.to_string_lossy().into());
+    store::upsert(&app, tool)?;
+    app.emit("library-changed", ()).ok();
+    Ok(path.to_string_lossy().into())
 }
 
 #[tauri::command]
 pub fn tool_reveal(app: AppHandle, slug: String) -> Result<(), String> {
     let tool = find(&app, &slug)?;
-    let target = tool.launch_path.unwrap_or(tool.path);
-    if target.is_empty() {
-        return Err("This tool is built into Toolbay.".into());
-    }
-    app.opener().reveal_item_in_dir(target).map_err(|e| e.to_string())
+    app.opener().reveal_item_in_dir(tool.exe).map_err(|_| "Couldn't open the folder.".to_string())
 }
 
-#[tauri::command]
-pub fn tool_uninstall(app: AppHandle, slug: String) -> Result<(), String> {
-    if !valid_slug(&slug) {
-        return Err("bad slug".into());
-    }
-    let dir = store::tools_dir(&app).join(&slug);
-    if dir.exists() {
-        std::fs::remove_dir_all(&dir).map_err(|e| format!("Could not remove files (is the tool still open?): {e}"))?;
-    }
-    let mut lib = store::library(&app);
-    lib.retain(|t| t.slug != slug);
-    store::save_library(&app, &lib)
+// ---------------------------------------------------------------- silent updates
+
+fn source_for(app: &AppHandle, t: &InstalledTool) -> String {
+    store::setting(app, &format!("source:{}", t.slug)).unwrap_or_else(|| t.repo.clone())
 }
 
-/// Skills install through the Toolbay CLI: `npx toolbay add <slug>`.
-#[tauri::command]
-pub async fn skill_install(slug: String) -> Result<String, String> {
-    if !valid_slug(&slug) {
-        return Err("bad slug".into());
+async fn update_one(app: &AppHandle, slug: &str) {
+    if store::setting(app, "autoUpdate").as_deref() == Some("false") || is_running(app, slug) {
+        return;
     }
-    let npx = if cfg!(windows) { "npx.cmd" } else { "npx" };
-    let out = tokio::process::Command::new(npx)
-        .args(["--yes", "toolbay", "add", &slug])
-        .output()
-        .await
-        .map_err(|_| "Node.js is needed to install skills (npx not found).".to_string())?;
-    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    if out.status.success() { Ok(text) } else { Err(text) }
+    let Some(t) = store::library(app).into_iter().find(|t| t.slug == slug) else { return };
+    let source = source_for(app, &t);
+    let Ok(r) = manifest::resolve(&source).await else { return };
+    if !manifest::newer(&r.manifest.version, &t.version) {
+        return;
+    }
+    if tool_install(app.clone(), slug.to_string(), source).await.is_ok() {
+        app.emit("tool-updated", serde_json::json!({ "slug": slug, "name": t.name, "version": r.manifest.version }))
+            .ok();
+    }
+}
+
+/// Check every installed tool shortly after start, then every 6 hours. Tools that are
+/// open are skipped and updated when they close.
+pub fn start_auto_update(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(15)).await;
+        loop {
+            for t in store::library(&app) {
+                update_one(&app, &t.slug).await;
+            }
+            tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
+        }
+    });
 }

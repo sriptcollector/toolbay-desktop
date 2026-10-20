@@ -1,13 +1,1 @@
-{
-  "posts": [
-    {
-      "id": "sample-1",
-      "body": "This is sample data shown while the Toolbay API is offline. Once the app connects to toolbay.ai, real posts from the community appear here.",
-      "createdAt": "2026-10-19T12:00:00.000Z",
-      "author": { "name": "Toolbay", "handle": "toolbay" },
-      "toolSlug": null,
-      "replyCount": 0,
-      "likeCount": 0
-    }
-  ]
-}
+{ "posts": [] }
