@@ -54,7 +54,7 @@ export function ToolControls({ hub, tool, size = "row" }: { hub: Hub; tool: Tool
   const busy = hub.busy[tool.slug];
   const big = size === "hero";
   const primary = `btn primary ${big ? "big" : ""}`;
-  const secondary = "btn small quiet";
+  const secondary = "btn small";
 
   if (p) return <InstallProgress hub={hub} slug={tool.slug} big={big} />;
 

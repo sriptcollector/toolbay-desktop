@@ -54,13 +54,15 @@ function Hero({ hub, tool, onTitle }: { hub: Hub; tool: Tool; onTitle?: () => vo
           <span className="chip">Free</span>
           <span className="chip">Open source · {tool.license}</span>
           <PrivacyChip privacy={tool.privacy} />
-          <button className="chip-btn small" onClick={() => shareTool(hub, tool.slug, tool.name)}>
-            Share {tool.name}
-          </button>
         </div>
       </div>
       <div className="hero-action">
         <ToolControls hub={hub} tool={tool} size="hero" />
+        <div className="hero-secondary">
+          <button className="btn small" onClick={() => shareTool(hub, tool.slug, tool.name)}>
+            Share
+          </button>
+        </div>
       </div>
     </div>
   );

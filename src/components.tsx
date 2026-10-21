@@ -13,7 +13,7 @@ export function Icon({ tool, className = "icon" }: { tool: Pick<Tool, "name" | "
 
 export function PrivacyChip({ privacy }: { privacy: Privacy }) {
   const [cls, label] = {
-    passed: ["ok", "Privacy check passed"],
+    passed: ["success", "Privacy check passed"],
     pending: ["warn", "Privacy check pending"],
     failed: ["bad", "Privacy check failed"],
   }[privacy.status];
