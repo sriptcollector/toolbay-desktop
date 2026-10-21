@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Hub } from "./App";
 import { api, isTauri } from "./lib/api";
-import { formatSize, native, platform, uptime, type RunInfo } from "./lib/native";
+import { formatSize, native, platform, type RunInfo } from "./lib/native";
 import type { ForkSummary, Resolved, Review, Tool, User } from "./lib/types";
 import { ForkedFrom, Icon, Inspired, PrivacyChip, ProfileLink, Stars, timeAgo } from "./components";
 import { DropCard, DropEmailsSetting, ToolSpace } from "./spaces";
@@ -31,22 +31,13 @@ function totalSize(r: Resolved | null | undefined) {
   return r.entry.size + r.manifest.files.reduce((a, f) => a + (f.size ?? 0), 0);
 }
 
-/** Re-render every 30 s so uptimes stay current. */
-function useTick(ms = 30000) {
-  const [, set] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => set((n) => n + 1), ms);
-    return () => window.clearInterval(id);
-  }, [ms]);
-}
 
 /** "Running · 12 min" plus Hide and Close, for a tool that's running. */
 function RunControls({ hub, tool, run }: { hub: Hub; tool: Tool; run: RunInfo }) {
-  useTick();
   return (
     <div className="run-controls">
       <span className="running">
-        <span className="dot" /> {run.window === "hidden" ? "Running in the background" : "Running"} · {uptime(run.startedAt)}
+        <span className="dot" /> {run.window === "hidden" ? "Running in the background" : "Running"}
       </span>
       <span className="run-buttons">
         {run.window !== "hidden" && (
@@ -603,7 +594,6 @@ function Reviews({ hub, slug }: { hub: Hub; slug: string }) {
 // ---------------- Running now ----------------
 
 function RunningList({ hub }: { hub: Hub }) {
-  useTick();
   return (
     <div className="panel">
       {hub.running.map((r) => {
@@ -614,8 +604,7 @@ function RunningList({ hub }: { hub: Hub }) {
             <div className="grow">
               <div className="title">{r.name}</div>
               <div className="running small">
-                <span className="dot" /> {r.window === "hidden" ? "Running in the background" : "Running"} ·{" "}
-                {uptime(r.startedAt)}
+                <span className="dot" /> {r.window === "hidden" ? "Running in the background" : "Running"}
               </div>
             </div>
             {t && (

@@ -73,12 +73,3 @@ export function formatSize(bytes?: number | null) {
   if (bytes > 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
   return `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`;
 }
-
-export function uptime(startedAt: number, now = Date.now()) {
-  const s = Math.max(0, Math.floor(now / 1000 - startedAt));
-  if (s < 60) return "just started";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `for ${m} min`;
-  const h = Math.floor(m / 60);
-  return `for ${h} h ${m % 60} min`;
-}
