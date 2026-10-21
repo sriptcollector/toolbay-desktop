@@ -47,15 +47,39 @@ fn marker_paths(app: &AppHandle) -> Vec<std::path::PathBuf> {
 }
 
 /// Read (and remove) the installer's note, and queue "Install <tool>?" if it names one.
+/// On the very first launch, also tell toolbay.ai the app was installed (GET /api/v1/desktop/handoff,
+/// counted once); its toolSlug is the fallback when the file name didn't say which tool.
 pub fn check(app: &AppHandle) {
+    let mut wanted = None;
     for p in marker_paths(app) {
         let Ok(text) = std::fs::read_to_string(&p) else { continue };
         let _ = std::fs::remove_file(&p);
         if let Some(slug) = slug_from_installer_name(text.trim()) {
-            push_route(app, serde_json::json!({ "kind": "install", "slug": slug, "firstRun": true }));
-            return;
+            wanted = Some(slug);
+            break;
         }
     }
+    if let Some(slug) = &wanted {
+        push_route(app, serde_json::json!({ "kind": "install", "slug": slug, "firstRun": true }));
+    }
+    if crate::store::setting(app, "handoffSent").is_some() {
+        return;
+    }
+    let _ = crate::store::settings_set(app.clone(), "handoffSent".into(), chrono::Utc::now().to_rfc3339());
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let platform = if cfg!(target_os = "macos") { "mac" } else { "win" };
+        let path = format!("/api/v1/desktop/handoff?platform={platform}");
+        let Ok(res) = crate::api::send(&app, "GET", &path, None).await else { return };
+        // The site's guess only helps someone new: skip it if they already have tools.
+        if wanted.is_some() || res.status != 200 || !crate::store::library(&app).is_empty() {
+            return;
+        }
+        let slug = serde_json::from_str::<Value>(&res.body).ok().and_then(|v| v["toolSlug"].as_str().map(String::from));
+        if let Some(slug) = slug.filter(|s| !s.is_empty() && s.len() <= 64 && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')) {
+            push_route(&app, serde_json::json!({ "kind": "install", "slug": slug, "firstRun": true }));
+        }
+    });
 }
 
 #[cfg(test)]

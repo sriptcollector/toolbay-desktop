@@ -146,6 +146,26 @@ jobs:
             xcrun stapler validate "$app"
           fi
 
+      # A tool installed by the hub must open without any Gatekeeper prompt: the hub downloads with
+      # its own HTTP client (nothing is quarantined) and clears the flag after installing anyway.
+      # Runs the hub's real install path headless (models skipped) and opens Toolbay Flow.
+      - name: Install a tool through the hub (no Gatekeeper prompt)
+        if: matrix.platform == 'macos-latest' && contains(matrix.args, 'aarch64')
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          set -uo pipefail
+          app=$(ls -d src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app | head -1)
+          bin="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+          TOOLBAY_CI_INSTALL="toolbay-flow sriptcollector/toolbay-flow" TOOLBAY_CI_SKIP_FILES=1             TOOLBAY_CI_RESULT="$PWD/ci-result.txt" "$bin" || true
+          echo "Result: $(cat ci-result.txt 2>/dev/null || echo 'no result')"
+          ls -la@ ~/Applications/Toolbay 2>/dev/null || true
+          for a in ~/Applications/Toolbay/*.app; do
+            xattr -p com.apple.quarantine "$a" 2>/dev/null && { echo "$a is quarantined"; exit 1; }
+            echo "$a: not quarantined"; codesign -dv "$a" 2>&1 | grep -E "Signature|Authority|TeamIdentifier" || true
+          done
+          test "$(cat ci-result.txt 2>/dev/null)" = ok
+
       # Mac installer package. Without an Apple certificate, a downloaded ad-hoc DMG app is called
       # "damaged"; an unsigned .pkg only gets "unidentified developer / Open Anyway", and the app the
       # macOS Installer puts in /Applications isn't quarantined, so it opens normally afterwards.

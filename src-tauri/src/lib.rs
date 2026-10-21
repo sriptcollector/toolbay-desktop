@@ -138,6 +138,7 @@ pub fn run() {
 
             let _ = installer::APP.set(handle.clone());
             build_tray(&handle)?;
+            installer::ci_smoke_test(&handle);
             firstrun::check(&handle);
             running::start(&handle);
             sync::start(&handle);

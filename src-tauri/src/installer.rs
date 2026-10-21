@@ -93,8 +93,21 @@ pub async fn tool_resolve(app: AppHandle, slug: String, source: String) -> Resul
     manifest::resolve(&source).await
 }
 
+/// Install from the hub's Install button (or the first-run prompt); counted on toolbay.ai.
 #[tauri::command]
 pub async fn tool_install(app: AppHandle, slug: String, source: String) -> Result<InstalledTool, String> {
+    let entry = install_tool(app.clone(), slug.clone(), source).await?;
+    // Funnel count for /admin/sources ("Tool installs"); no account needed, deduped by the site.
+    let platform = if cfg!(target_os = "macos") { "mac" } else { "win" };
+    let body = serde_json::json!({ "event": "tool_install", "toolSlug": slug, "platform": platform }).to_string();
+    tauri::async_runtime::spawn(async move {
+        let _ = crate::api::send(&app, "POST", "/api/v1/desktop/events", Some(body)).await;
+    });
+    Ok(entry)
+}
+
+/// Install or update a tool (shared by the Install button and quiet auto-updates).
+pub async fn install_tool(app: AppHandle, slug: String, source: String) -> Result<InstalledTool, String> {
     if !valid_slug(&slug) {
         return Err("Something went wrong. Please restart Toolbay and try again.".into());
     }
@@ -123,7 +136,9 @@ async fn install(app: &AppHandle, slug: &str, source: &str) -> Result<InstalledT
 
     // Files still to fetch (skip ones already in place, e.g. a model kept from standalone use).
     let mut todo: Vec<&FileEntry> = vec![];
-    for f in &r.manifest.files {
+    // CI smoke test (TOOLBAY_CI_SKIP_FILES): install the program only, not its large models.
+    let skip_files = std::env::var_os("TOOLBAY_CI_SKIP_FILES").is_some();
+    for f in r.manifest.files.iter().filter(|_| !skip_files) {
         if !safe_rel(&f.path) {
             return Err("This tool's download list looks wrong, so nothing was installed.".into());
         }
@@ -186,6 +201,13 @@ async fn install(app: &AppHandle, slug: &str, source: &str) -> Result<InstalledT
         _ => return Err("This tool needs a newer version of Toolbay. Update Toolbay from Settings, then try again.".into()),
     };
     std::fs::remove_dir_all(&staging).ok();
+    // Toolbay downloads with its own HTTP client, so nothing it installs is marked "downloaded from
+    // the internet". Clear the flag anyway, so macOS never calls a tool damaged or asks to confirm.
+    #[cfg(target_os = "macos")]
+    {
+        let target = if kind == "dmg" { exe.clone() } else { dir.clone() };
+        let _ = tokio::process::Command::new("xattr").args(["-dr", "com.apple.quarantine"]).arg(&target).status().await;
+    }
 
     let previous = store::library(app).into_iter().find(|t| t.slug == slug);
     let entry = InstalledTool {
@@ -664,7 +686,7 @@ pub async fn update_one(app: &AppHandle, slug: &str) {
     if !manifest::newer(&r.manifest.version, &t.version) {
         return;
     }
-    if tool_install(app.clone(), slug.to_string(), source).await.is_ok() {
+    if install_tool(app.clone(), slug.to_string(), source).await.is_ok() {
         app.emit("tool-updated", serde_json::json!({ "slug": slug, "name": t.name, "version": r.manifest.version }))
             .ok();
     }
@@ -682,5 +704,40 @@ pub fn start_auto_update(app: &AppHandle) {
             }
             tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
         }
+    });
+}
+
+/// CI smoke test: TOOLBAY_CI_INSTALL="<slug> <source>" installs that tool through the normal
+/// install path, opens it, and writes "ok" or the problem to TOOLBAY_CI_RESULT, then quits.
+/// On a Mac it also fails if the installed app carries com.apple.quarantine (Gatekeeper prompt).
+pub fn ci_smoke_test(app: &AppHandle) {
+    let Ok(spec) = std::env::var("TOOLBAY_CI_INSTALL") else { return };
+    let out = std::env::var("TOOLBAY_CI_RESULT").unwrap_or_else(|_| "toolbay-ci-result.txt".into());
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let result: Result<(), String> = async {
+            let (slug, source) = spec.split_once(' ').ok_or("TOOLBAY_CI_INSTALL must be \"<slug> <source>\"")?;
+            let t = install_tool(app.clone(), slug.into(), source.into()).await?;
+            #[cfg(target_os = "macos")]
+            {
+                let q = std::process::Command::new("xattr").args(["-p", "com.apple.quarantine"]).arg(&t.exe).output();
+                if q.map(|o| o.status.success()).unwrap_or(false) {
+                    return Err(format!("{} is quarantined", t.exe));
+                }
+            }
+            tool_launch(app.clone(), slug.into())?;
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            if !crate::running::is_running(&app, slug) {
+                return Err(format!("{} didn't stay open", t.name));
+            }
+            let _ = crate::running::tool_close(app.clone(), slug.into()).await;
+            Ok(())
+        }
+        .await;
+        let _ = std::fs::write(&out, match &result {
+            Ok(()) => "ok".to_string(),
+            Err(e) => e.clone(),
+        });
+        app.exit(if result.is_ok() { 0 } else { 1 });
     });
 }
