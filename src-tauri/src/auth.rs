@@ -16,9 +16,16 @@ pub struct AuthState {
 
 #[tauri::command]
 pub fn auth_start(app: AppHandle, state: tauri::State<'_, AuthState>) -> Result<(), String> {
+    start_sign_in(&app, &state)
+}
+
+/// Open the browser sign-in with a fresh one-time state. Only a toolbay://auth link carrying this
+/// exact state is accepted, so no web page can slip the hub a code for someone else's account.
+/// Tools that want the person signed in open toolbay://signin, which lands here.
+fn start_sign_in(app: &AppHandle, state: &AuthState) -> Result<(), String> {
     let nonce = uuid::Uuid::new_v4().to_string();
     *state.pending.lock().unwrap() = Some(nonce.clone());
-    let url = format!("{}/desktop/auth?state={}", api::base_url(&app), nonce);
+    let url = format!("{}/desktop/auth?state={}", api::base_url(app), nonce);
     app.opener()
         .open_url(url, None::<&str>)
         .map_err(|_| "Couldn't open your web browser. Please try again.".to_string())
@@ -102,9 +109,10 @@ pub fn handle_deep_link(app: &AppHandle, raw: &str) {
                 return;
             };
             let expected = app.state::<AuthState>().pending.lock().unwrap().take();
-            if let (Some(got), Some(want)) = (q.get("state"), expected.as_ref()) {
-                if got != want {
-                    app.emit("auth-error", "That sign-in link was for a different window. Please sign in again.").ok();
+            match (q.get("state"), expected.as_ref()) {
+                (Some(got), Some(want)) if got == want => {}
+                _ => {
+                    app.emit("auth-error", "That sign-in link didn't come from this window. Click Sign in to try again.").ok();
                     return;
                 }
             }
@@ -114,6 +122,15 @@ pub fn handle_deep_link(app: &AppHandle, raw: &str) {
                     app.emit("auth-error", e).ok();
                 }
             });
+        }
+        // toolbay://signin: a tool (e.g. Toolbay Flow) asking the hub to sign the person in.
+        "signin" => {
+            if api::token().is_some() {
+                return; // already signed in; tools read the token from the keychain
+            }
+            if let Err(e) = start_sign_in(app, &app.state::<AuthState>()) {
+                app.emit("auth-error", e).ok();
+            }
         }
         // toolbay://project/<id> (the website's "Install in Toolbay" on an uploaded project)
         "project" | "projects" => {
