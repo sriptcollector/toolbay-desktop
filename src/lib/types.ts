@@ -34,7 +34,7 @@ export interface Tool {
   rating: number | null;
   reviewCount: number;
   author: Author;
-  status?: "coming_soon" | "beta" | "live";
+  status?: "coming_soon" | "beta" | "live" | "early_access";
   /** The product this is an open-source take on. Shown as "Inspired by <name>". */
   inspiredBy?: { name: string; company: string; logoUrl?: string | null } | null;
   /** Set when this tool is a fork of another tool on Toolbay. The credit is permanent. */
@@ -104,6 +104,8 @@ export interface ForkSummary {
 
 export interface Profile {
   handle: string;
+  /** Invite badge (Builder, Community builder, Top builder), or null. */
+  badge?: { name: string; activations: number } | null;
   name: string;
   avatarUrl: string | null;
   bio: string | null;

@@ -537,6 +537,13 @@ pub fn tool_launch(app: AppHandle, slug: String) -> Result<(), String> {
     };
     cmd.spawn()
         .map_err(|_| format!("{} didn't start. Try again, or reinstall it from its page.", tool.name))?;
+    // Count the open on toolbay.ai (safe to repeat; it's what credits a friend's invite).
+    if crate::api::token().is_some() && valid_slug(&slug) && !slug.starts_with("p-") {
+        let app2 = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = crate::api::send(&app2, "POST", &format!("/api/v1/me/tools/{slug}/opened"), Some("{}".into())).await;
+        });
+    }
     Ok(())
 }
 

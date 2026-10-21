@@ -233,3 +233,7 @@ img.avatar { object-fit: cover; }
 .md-list { margin: 0 0 10px; padding-left: 20px; }
 .link.inline { font-size: inherit; color: var(--premium-bright); }
 textarea.input { resize: vertical; font: inherit; }
+
+/* Invites */
+.invite-link { display: flex; gap: 8px; padding: 12px; }
+.invite-link .grow { flex: 1; }

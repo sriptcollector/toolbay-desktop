@@ -6,6 +6,7 @@ import { formatSize, native, platform, uptime, type RunInfo } from "./lib/native
 import type { ForkSummary, Resolved, Review, Tool, User } from "./lib/types";
 import { ForkedFrom, Icon, Inspired, PrivacyChip, ProfileLink, Stars, timeAgo } from "./components";
 import { DropCard, DropEmailsSetting, ToolSpace } from "./spaces";
+import { shareTool } from "./invite";
 
 const open = (url: string) => (isTauri ? openUrl(url) : window.open(url, "_blank"));
 
@@ -180,9 +181,13 @@ function Hero({ hub, tool, onTitle }: { hub: Hub; tool: Tool; onTitle?: () => vo
         <div className="hero-meta">
           {tool.forkedFrom && <ForkedFrom hub={hub} from={tool.forkedFrom} />}
           <Inspired tool={tool} />
+          {tool.status === "early_access" && <span className="chip ok">Early access</span>}
           <span className="chip">Free</span>
           <span className="chip">Open source · {tool.license}</span>
           <PrivacyChip privacy={tool.privacy} />
+          <button className="chip-btn small" onClick={() => shareTool(hub, tool.slug, tool.name)}>
+            Share {tool.name}
+          </button>
         </div>
       </div>
       <div className="hero-action">
@@ -240,6 +245,8 @@ function ToolGrid({ hub, tools }: { hub: Hub; tools?: Tool[] }) {
                   "Running now"
                 ) : installed ? (
                   "Installed"
+                ) : t.status === "early_access" ? (
+                  "Early access"
                 ) : t.forkedFrom ? (
                   <ForkedFrom hub={hub} from={t.forkedFrom} />
                 ) : t.inspiredBy ? (

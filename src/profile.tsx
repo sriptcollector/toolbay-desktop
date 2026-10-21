@@ -44,7 +44,14 @@ export function ProfilePage({ hub, handle }: { hub: Hub; handle: string }) {
           <div className="profile-avatar">{(p.name || p.handle).charAt(0).toUpperCase()}</div>
         )}
         <div className="grow">
-          <h1>{p.name || `@${p.handle}`}</h1>
+          <h1>
+            {p.name || `@${p.handle}`}
+            {p.badge && (
+              <span className="chip ok" style={{ marginLeft: 10, verticalAlign: "middle" }} title={`${p.badge.activations} friends using Toolbay`}>
+                {p.badge.name}
+              </span>
+            )}
+          </h1>
           <div className="muted">
             @{p.handle}
             {p.location ? ` · ${p.location}` : ""} · joined {new Date(p.joinedAt).toLocaleDateString()}
