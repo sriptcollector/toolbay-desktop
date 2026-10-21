@@ -37,6 +37,18 @@ export interface Tool {
   status?: "coming_soon" | "beta" | "live" | "early_access";
   /** The product this is an open-source take on. Shown as "Inspired by <name>". */
   inspiredBy?: { name: string; company: string; logoUrl?: string | null } | null;
+  /** Results of Toolbay's automatic install/open/close test on clean test computers. */
+  compatibility?: {
+    platform: string;
+    os?: string;
+    arch?: string;
+    installs: boolean;
+    opens: boolean;
+    closes: boolean;
+    testedAt?: string;
+  }[] | null;
+  /** For apps by outside maintainers (found by the tool scout): who made it. Shown instead of author. */
+  credit?: { name: string; login?: string; url: string; maintainers?: { login: string; url: string }[] } | null;
   /** Set when this tool is a fork of another tool on Toolbay. The credit is permanent. */
   forkedFrom?: { toolSlug: string; builderHandle: string } | null;
   /** Where the hub installs from. Defaults to the GitHub repo in repoUrl. */

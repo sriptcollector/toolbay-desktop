@@ -283,6 +283,16 @@ export function ToolsPage({ hub }: { hub: Hub }) {
 
 // ---------------- Tool page ----------------
 
+/** "Windows · Mac" for platforms where Toolbay's automatic test installed, opened and closed the app. */
+function testedOn(tool: Tool) {
+  const ok = (tool.compatibility ?? []).filter((c) => c.installs && c.opens && c.closes);
+  const names = [
+    ok.some((c) => c.platform.startsWith("windows")) && "Windows",
+    ok.some((c) => c.platform.startsWith("darwin")) && "Mac",
+  ].filter(Boolean);
+  return names.join(" · ");
+}
+
 export function ToolDetail({ hub, slug }: { hub: Hub; slug: string }) {
   const [confirming, setConfirming] = useState(false);
   const tool = hub.tools.find((t) => t.slug === slug);
@@ -318,13 +328,20 @@ export function ToolDetail({ hub, slug }: { hub: Hub; slug: string }) {
         <div className="fact">
           <div className="fact-label">Works on</div>
           <div className="fact-value">{tool.platforms.map((p) => (p === "mac" ? "Mac" : "Windows")).join(" and ")}</div>
+          {testedOn(tool) && <div className="small muted" title="Installed, opened and closed on a clean test computer">Tested on {testedOn(tool)}</div>}
         </div>
         <div className="fact">
           <div className="fact-label">Made by</div>
           <div className="fact-value">
-            <ProfileLink hub={hub} handle={tool.author.handle}>
-              {tool.author.name}
-            </ProfileLink>
+            {tool.credit ? (
+              <button className="link author" onClick={() => open(tool.credit!.url)}>
+                {tool.credit.name}
+              </button>
+            ) : (
+              <ProfileLink hub={hub} handle={tool.author.handle}>
+                {tool.author.name}
+              </ProfileLink>
+            )}
           </div>
         </div>
         <div className="fact">
