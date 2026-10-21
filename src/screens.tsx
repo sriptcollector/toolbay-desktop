@@ -283,9 +283,10 @@ export function ToolsPage({ hub }: { hub: Hub }) {
 
 // ---------------- Tool page ----------------
 
-/** "Windows · Mac" for platforms where Toolbay's automatic test installed, opened and closed the app. */
+/** "Windows · Mac" for platforms where Toolbay's automatic test installed and opened the app.
+ *  (Tray and many Electron apps ignore a polite close and get force-closed; that's still a pass.) */
 function testedOn(tool: Tool) {
-  const ok = (tool.compatibility ?? []).filter((c) => c.installs && c.opens && c.closes);
+  const ok = (tool.compatibility ?? []).filter((c) => c.installs && c.opens);
   const names = [
     ok.some((c) => c.platform.startsWith("windows")) && "Windows",
     ok.some((c) => c.platform.startsWith("darwin")) && "Mac",
@@ -328,7 +329,7 @@ export function ToolDetail({ hub, slug }: { hub: Hub; slug: string }) {
         <div className="fact">
           <div className="fact-label">Works on</div>
           <div className="fact-value">{tool.platforms.map((p) => (p === "mac" ? "Mac" : "Windows")).join(" and ")}</div>
-          {testedOn(tool) && <div className="small muted" title="Installed, opened and closed on a clean test computer">Tested on {testedOn(tool)}</div>}
+          {testedOn(tool) && <div className="small muted" title="Installed and opened on a clean test computer">Tested on {testedOn(tool)}</div>}
         </div>
         <div className="fact">
           <div className="fact-label">Made by</div>
