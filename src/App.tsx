@@ -6,9 +6,10 @@ import { NavIcon } from "./components";
 import logo from "./assets/logo.png";
 import { CommunityPage, HomePage, LibraryPage, RunningPage, SettingsPage, ToolDetail, ToolsPage } from "./screens";
 import { ProjectsPage, readyTools } from "./projects";
+import { ProfilePage } from "./profile";
 import { projectsApi } from "./lib/projects";
 
-export type Page = "home" | "running" | "tools" | "community" | "library" | "settings" | "projects";
+export type Page = "home" | "running" | "tools" | "community" | "library" | "settings" | "projects" | "profile";
 export interface Route {
   page: Page;
   slug?: string;
@@ -217,6 +218,7 @@ export default function App() {
   if (route.page === "tools" && route.slug) body = <ToolDetail hub={hub} slug={route.slug} />;
   else if (route.page === "tools") body = <ToolsPage hub={hub} />;
   else if (route.page === "projects") body = <ProjectsPage hub={hub} />;
+  else if (route.page === "profile" && route.slug) body = <ProfilePage hub={hub} handle={route.slug} />;
   else if (route.page === "running") body = <RunningPage hub={hub} />;
   else if (route.page === "community") body = <CommunityPage hub={hub} />;
   else if (route.page === "library") body = <LibraryPage hub={hub} />;
@@ -247,6 +249,9 @@ export default function App() {
           </button>
         ))}
         <div className="spacer" />
+        <button className="btn upload-cta" onClick={() => setRoute({ page: "projects" })}>
+          Upload your app
+        </button>
         <button
           className={`nav-item ${route.page === "settings" ? "active" : ""}`}
           onClick={() => setRoute({ page: "settings" })}
@@ -255,10 +260,17 @@ export default function App() {
           Settings
         </button>
         {user ? (
-          <div className="account">
-            <div className="avatar">{(user.name || user.handle).charAt(0).toUpperCase()}</div>
+          <button
+            className={`nav-item account ${route.page === "profile" && route.slug === user.handle ? "active" : ""}`}
+            onClick={() => setRoute({ page: "profile", slug: user.handle })}
+          >
+            {user.avatarUrl ? (
+              <img className="avatar" src={user.avatarUrl} alt="" />
+            ) : (
+              <div className="avatar">{(user.name || user.handle).charAt(0).toUpperCase()}</div>
+            )}
             {user.name || `@${user.handle}`}
-          </div>
+          </button>
         ) : (
           <button className="nav-item" onClick={hub.signIn}>
             <span className="avatar">?</span>

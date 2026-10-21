@@ -3,7 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import toolsFixture from "../fixtures/tools.json";
 import postsFixture from "../fixtures/posts.json";
-import type { ForkSummary, Post, Review, Tool } from "./types";
+import type { ForkSummary, Post, Profile, Review, Tool } from "./types";
 import type { Project } from "./projects";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
@@ -44,7 +44,7 @@ async function withFallback<T>(path: string, fallback: T, pick: (j: any) => T): 
 const BUNDLED_ICONS: Record<string, string> = { "toolbay-flow": "/tools/toolbay-flow.png" };
 
 /** Fill gaps in catalog entries so every screen can rely on the same shape. */
-function normalize(t: Tool & { replaces?: string | null }): Tool {
+export function normalize(t: Tool & { replaces?: string | null }): Tool {
   const inspiredBy =
     t.inspiredBy ?? (t.replaces ? { name: t.replaces, company: `the makers of ${t.replaces}` } : null);
   let iconUrl = t.iconUrl || BUNDLED_ICONS[t.slug] || "";
@@ -72,6 +72,23 @@ export const api = {
     request<{ review: Review }>("POST", `/api/v1/tools/${slug}/reviews`, { rating, body }),
   posts: () => withFallback<Post[]>("/api/v1/community/posts", postsFixture.posts as Post[], (j) => j.posts),
   createPost: (body: string) => request<{ post: Post }>("POST", "/api/v1/community/posts", { body }),
+  /** A person's profile, or null when there's no such user (or toolbay.ai can't be reached). */
+  user: async (handle: string): Promise<Profile | null> => {
+    try {
+      const { user } = await request<{ user: Profile }>("GET", `/api/v1/users/${encodeURIComponent(handle)}`);
+      return {
+        ...user,
+        pinned: (user.pinned ?? []).map((p) => (p.type === "tool" ? { ...p, tool: normalize(p.tool) } : p)),
+        apps: (user.apps ?? []).map(normalize),
+        forks: (user.forks ?? []).map(normalize),
+        posts: user.posts ?? [],
+        repos: user.repos ?? [],
+        links: user.links ?? { website: null, github: null, x: null },
+      };
+    } catch {
+      return null;
+    }
+  },
   forks: (slug: string) =>
     withFallback<{ count: number; forks: ForkSummary[] }>(`/api/v1/tools/${slug}/forks`, { count: 0, forks: [] }, (j) =>
       typeof j.count === "number" ? j : undefined,

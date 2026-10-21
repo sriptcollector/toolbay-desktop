@@ -77,6 +77,22 @@ export function timeAgo(iso: string) {
   return new Date(iso).toLocaleDateString();
 }
 
+/** An author's name, linking to their profile in the hub. */
+export function ProfileLink({ hub, handle, children }: { hub: Hub; handle: string; children?: React.ReactNode }) {
+  if (!handle) return <>{children}</>;
+  return (
+    <button
+      className="link author"
+      onClick={(e) => {
+        e.stopPropagation();
+        hub.go({ page: "profile", slug: handle });
+      }}
+    >
+      {children ?? `@${handle}`}
+    </button>
+  );
+}
+
 /** "Forked from <tool> by @<builder>", linking to the original tool's page. */
 export function ForkedFrom({ hub, from }: { hub: Hub; from: { toolSlug: string; builderHandle: string } }) {
   const original = hub.tools.find((t) => t.slug === from.toolSlug);
@@ -92,7 +108,7 @@ export function ForkedFrom({ hub, from }: { hub: Hub; from: { toolSlug: string; 
       >
         {original?.name ?? from.toolSlug}
       </button>{" "}
-      by @{from.builderHandle}
+      by <ProfileLink hub={hub} handle={from.builderHandle} />
     </span>
   );
 }

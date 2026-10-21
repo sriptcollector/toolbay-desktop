@@ -4,7 +4,7 @@ import type { Hub } from "./App";
 import { api, isTauri } from "./lib/api";
 import { formatSize, native, platform, uptime, type RunInfo } from "./lib/native";
 import type { ForkSummary, Resolved, Review, Tool, User } from "./lib/types";
-import { ForkedFrom, Icon, Inspired, PrivacyChip, Stars, timeAgo } from "./components";
+import { ForkedFrom, Icon, Inspired, PrivacyChip, ProfileLink, Stars, timeAgo } from "./components";
 
 const open = (url: string) => (isTauri ? openUrl(url) : window.open(url, "_blank"));
 
@@ -311,8 +311,12 @@ export function ToolDetail({ hub, slug }: { hub: Hub; slug: string }) {
           <div className="fact-value">{tool.platforms.map((p) => (p === "mac" ? "Mac" : "Windows")).join(" and ")}</div>
         </div>
         <div className="fact">
-          <div className="fact-label">Price</div>
-          <div className="fact-value">Free</div>
+          <div className="fact-label">Made by</div>
+          <div className="fact-value">
+            <ProfileLink hub={hub} handle={tool.author.handle}>
+              {tool.author.name}
+            </ProfileLink>
+          </div>
         </div>
         <div className="fact">
           <div className="fact-label">Reviews</div>
@@ -487,7 +491,7 @@ function Forks({ hub, tool }: { hub: Hub; tool: Tool }) {
               <div className="grow">
                 <div className="title">{f.name}</div>
                 <div className="small muted">
-                  by @{f.author.handle} · {timeAgo(f.createdAt)}
+                  by <ProfileLink hub={hub} handle={f.author.handle} /> · {timeAgo(f.createdAt)}
                 </div>
               </div>
             </div>
@@ -550,7 +554,9 @@ function Reviews({ hub, slug }: { hub: Hub; slug: string }) {
         <div className="review" key={r.id}>
           <div className="meta">
             <span className="stars">{"★".repeat(r.rating)}</span>
-            <span>{r.author.name}</span>
+            <ProfileLink hub={hub} handle={r.author.handle}>
+              {r.author.name}
+            </ProfileLink>
             <span>{timeAgo(r.createdAt)}</span>
           </div>
           <div>{r.body}</div>
@@ -757,8 +763,14 @@ export function CommunityPage({ hub }: { hub: Hub }) {
         {hub.posts.map((p) => (
           <div className="post" key={p.id}>
             <div className="meta">
-              <div className="avatar">{p.author.name.charAt(0)}</div>
-              <span style={{ color: "var(--text)", fontWeight: 600 }}>{p.author.name}</span>
+              {p.author.avatarUrl ? (
+                <img className="avatar" src={p.author.avatarUrl} alt="" />
+              ) : (
+                <div className="avatar">{p.author.name.charAt(0)}</div>
+              )}
+              <ProfileLink hub={hub} handle={p.author.handle}>
+                <span style={{ color: "var(--text)", fontWeight: 600 }}>{p.author.name}</span>
+              </ProfileLink>
               <span>· {timeAgo(p.createdAt)}</span>
             </div>
             <div className="prose" style={{ fontSize: 15, lineHeight: "22px" }}>

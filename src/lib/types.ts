@@ -101,3 +101,24 @@ export interface ForkSummary {
   url: string;
   createdAt: string;
 }
+
+export interface Profile {
+  handle: string;
+  name: string;
+  avatarUrl: string | null;
+  bio: string | null;
+  location: string | null;
+  links: { website: string | null; github: string | null; x: string | null };
+  joinedAt: string;
+  /** Web path, e.g. "/@orion". */
+  url: string;
+  pinned: (
+    | { type: "tool"; tool: Tool }
+    | { type: "repo"; repo: { name: string; url: string; description: string | null } }
+    | { type: "post"; post: { id: string; body: string; createdAt: string } }
+  )[];
+  apps: Tool[];
+  forks: Tool[];
+  posts: { id: string; body: string; createdAt: string; commentCount: number }[];
+  repos: { name: string; url: string; description: string | null; language: string | null; stars: number; updatedAt: string; fork: boolean }[];
+}
