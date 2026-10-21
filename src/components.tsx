@@ -56,6 +56,7 @@ const paths: Record<string, string> = {
   running: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM10 8.5v7l6-3.5z",
   tools: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
   community: "M4 5h16v11H8l-4 4z",
+  requests: "M12 4l6 7h-4v9h-4v-9H6z",
   library: "M5 4h4v16H5zM10 4h4v16h-4zM15.5 4.5l3.8 1-3.6 14.6-3.8-1z",
   settings:
     "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm8 3-.1-1.2 2-1.6-2-3.4-2.4.9a8 8 0 0 0-2-1.2L15 2h-4l-.5 2.5a8 8 0 0 0-2 1.2l-2.4-.9-2 3.4 2 1.6L6 12l.1 1.2-2 1.6 2 3.4 2.4-.9a8 8 0 0 0 2 1.2L11 22h4l.5-2.5a8 8 0 0 0 2-1.2l2.4.9 2-3.4-2-1.6z",

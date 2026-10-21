@@ -5,6 +5,7 @@ import { api, isTauri } from "./lib/api";
 import { formatSize, native, platform, uptime, type RunInfo } from "./lib/native";
 import type { ForkSummary, Resolved, Review, Tool, User } from "./lib/types";
 import { ForkedFrom, Icon, Inspired, PrivacyChip, ProfileLink, Stars, timeAgo } from "./components";
+import { DropCard, DropEmailsSetting, ToolSpace } from "./spaces";
 
 const open = (url: string) => (isTauri ? openUrl(url) : window.open(url, "_blank"));
 
@@ -214,6 +215,7 @@ export function HomePage({ hub }: { hub: Hub }) {
           <ShortcutOffer hub={hub} tool={featured} />
         </>
       )}
+      <DropCard />
       <h2>All tools</h2>
       <ToolGrid hub={hub} />
     </>
@@ -383,6 +385,8 @@ export function ToolDetail({ hub, slug }: { hub: Hub; slug: string }) {
           </div>
         </>
       )}
+
+      <ToolSpace hub={hub} tool={tool} />
 
       <Forks hub={hub} tool={tool} />
 
@@ -897,6 +901,7 @@ export function SettingsPage({ hub, setUser }: { hub: Hub; setUser: (u: User | n
           </button>
         </div>
       </div>
+      <DropEmailsSetting hub={hub} />
       <div className="settings-row">
         <div className="grow">
           <div className="title">Toolbay</div>

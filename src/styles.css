@@ -212,3 +212,24 @@ img.avatar { object-fit: cover; }
 .link.author:hover { text-decoration: underline; color: var(--text-bright); }
 .nav-item.account { font-size: 14px; color: var(--text); }
 .upload-cta { margin: 0 4px 8px; text-align: center; }
+
+/* Requests, tool spaces, weekly drop */
+.vote { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 52px; padding: 8px 6px; border-radius: var(--r); border: 1px solid var(--line-strong); background: var(--canvas-deep); color: var(--text); font-family: var(--mono); font-size: 13px; cursor: pointer; }
+.vote span { font-size: 11px; color: var(--muted); }
+.vote:hover { border-color: var(--premium-line); }
+.vote.on { border-color: var(--premium); background: var(--premium-tint); color: var(--premium-bright); }
+.vote.on span { color: var(--premium-bright); }
+.request-row { align-items: flex-start; }
+.request-head { display: flex; gap: 18px; align-items: flex-start; margin-bottom: 8px; }
+.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.chip-btn { padding: 5px 12px; border-radius: 99px; border: 1px solid var(--line-strong); background: none; color: var(--muted); cursor: pointer; font-size: 13px; }
+.chip-btn.small { padding: 3px 10px; font-size: 12px; }
+.chip-btn:hover { color: var(--text); }
+.chip-btn.on { background: var(--chip); color: var(--text-bright); border-color: var(--chip); }
+.drop-card { padding: 18px 20px; }
+.md { margin-top: 12px; font-size: 15px; line-height: 23px; color: var(--body); }
+.md p { margin: 0 0 10px; }
+.md-h { font-weight: 700; color: var(--text-bright); margin: 16px 0 6px; }
+.md-list { margin: 0 0 10px; padding-left: 20px; }
+.link.inline { font-size: inherit; color: var(--premium-bright); }
+textarea.input { resize: vertical; font: inherit; }

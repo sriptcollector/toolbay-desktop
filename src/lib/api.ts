@@ -103,7 +103,7 @@ export type ForkStart =
   | { mode: "app"; url: string };
 
 /** Like request(), but turns the API's plain-words {error} into the thrown message. */
-async function callApi<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function callApi<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await invoke<RawResponse>("api_request", {
     method,
     path,

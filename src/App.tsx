@@ -7,9 +7,10 @@ import logo from "./assets/logo.png";
 import { CommunityPage, HomePage, LibraryPage, RunningPage, SettingsPage, ToolDetail, ToolsPage } from "./screens";
 import { ProjectsPage, readyTools } from "./projects";
 import { ProfilePage } from "./profile";
+import { RequestsPage } from "./requests";
 import { projectsApi } from "./lib/projects";
 
-export type Page = "home" | "running" | "tools" | "community" | "library" | "settings" | "projects" | "profile";
+export type Page = "home" | "running" | "tools" | "community" | "library" | "settings" | "projects" | "profile" | "requests";
 export interface Route {
   page: Page;
   slug?: string;
@@ -52,6 +53,7 @@ const NAV: { page: Page; label: string }[] = [
   { page: "tools", label: "Tools" },
   { page: "library", label: "Library" },
   { page: "community", label: "Community" },
+  { page: "requests", label: "Requests" },
 ];
 
 /** Keep Toolbay itself up to date without asking: download, install quietly, restart. */
@@ -218,6 +220,7 @@ export default function App() {
   if (route.page === "tools" && route.slug) body = <ToolDetail hub={hub} slug={route.slug} />;
   else if (route.page === "tools") body = <ToolsPage hub={hub} />;
   else if (route.page === "projects") body = <ProjectsPage hub={hub} />;
+  else if (route.page === "requests") body = <RequestsPage hub={hub} id={route.slug} />;
   else if (route.page === "profile" && route.slug) body = <ProfilePage hub={hub} handle={route.slug} />;
   else if (route.page === "running") body = <RunningPage hub={hub} />;
   else if (route.page === "community") body = <CommunityPage hub={hub} />;
