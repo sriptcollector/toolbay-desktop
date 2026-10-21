@@ -1,5 +1,6 @@
 mod api;
 mod auth;
+mod firstrun;
 mod installer;
 mod manifest;
 mod running;
@@ -137,6 +138,7 @@ pub fn run() {
 
             let _ = installer::APP.set(handle.clone());
             build_tray(&handle)?;
+            firstrun::check(&handle);
             running::start(&handle);
             sync::start(&handle);
             installer::start_auto_update(&handle);
@@ -154,6 +156,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             api::api_request,
             api::package_upload,
+            firstrun::route_take,
             auth::auth_start,
             auth::auth_user,
             auth::auth_sign_out,

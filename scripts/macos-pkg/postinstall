@@ -1,4 +1,19 @@
 #!/bin/sh
 # Apps placed by the macOS Installer are not flagged as downloaded; clear it anyway.
 xattr -dr com.apple.quarantine "/Applications/Toolbay.app" 2>/dev/null || true
+
+# Note this package's file name for the hub. A download from a tool page on toolbay.ai is named
+# "Toolbay-Setup--<slug>.pkg", and the hub offers that tool on first launch (src-tauri/src/firstrun.rs).
+user=$(stat -f%Su /dev/console 2>/dev/null)
+if [ -n "$user" ] && [ "$user" != "root" ]; then
+  home=$(dscl . -read "/Users/$user" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+  if [ -n "$home" ] && [ -d "$home/Library" ]; then
+    dir="$home/Library/Application Support/ai.toolbay.desktop"
+    [ -d "$dir" ] || { mkdir -p "$dir" && chown "$user" "$dir"; }
+    basename "$1" > "$dir/installed-from.txt" && chown "$user" "$dir/installed-from.txt"
+  fi
+  # Open Toolbay for them once it's installed.
+  uid=$(id -u "$user" 2>/dev/null)
+  [ -n "$uid" ] && launchctl asuser "$uid" sudo -u "$user" open -a "/Applications/Toolbay.app" >/dev/null 2>&1 || true
+fi
 exit 0

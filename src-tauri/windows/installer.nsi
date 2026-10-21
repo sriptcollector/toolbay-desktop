@@ -665,6 +665,12 @@ Section Install
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
 
+  ; Toolbay: note this installer's file name. A download from a tool page on toolbay.ai is named
+  ; "Toolbay-Setup--<slug>.exe", and the hub offers that tool on its next launch (firstrun.rs).
+  FileOpen $0 "$INSTDIR\installed-from.txt" w
+  FileWrite $0 "$EXEFILE"
+  FileClose $0
+
   ; Copy resources
   {{#each resources_dirs}}
     CreateDirectory "$INSTDIR\\{{this}}"
@@ -802,6 +808,7 @@ Section Uninstall
   ; Delete the app directory and its content from disk
   ; Copy main executable
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"
+  Delete "$INSTDIR\installed-from.txt"
 
   ; Delete resources
   {{#each resources}}

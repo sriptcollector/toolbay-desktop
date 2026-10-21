@@ -93,7 +93,7 @@ pub fn handle_deep_link(app: &AppHandle, raw: &str) {
         if let Some(slug) = segments.first() {
             if let Err(e) = crate::installer::tool_launch(app.clone(), slug.clone()) {
                 show(app);
-                app.emit("open-route", serde_json::json!({ "kind": "tool", "slug": slug })).ok();
+                crate::firstrun::push_route(app, serde_json::json!({ "kind": "tool", "slug": slug }));
                 app.emit("auth-error", e).ok();
             }
         }
@@ -132,16 +132,22 @@ pub fn handle_deep_link(app: &AppHandle, raw: &str) {
                 app.emit("auth-error", e).ok();
             }
         }
+        // toolbay://install/<slug>: the website's "Get <tool>" when the hub is installed.
+        "install" => {
+            if let Some(slug) = segments.first() {
+                crate::firstrun::push_route(app, serde_json::json!({ "kind": "install", "slug": slug }));
+            }
+        }
         // toolbay://project/<id> (the website's "Install in Toolbay" on an uploaded project)
         "project" | "projects" => {
             let id = segments.first().cloned().unwrap_or_default();
-            app.emit("open-route", serde_json::json!({ "kind": "project", "slug": id })).ok();
+            crate::firstrun::push_route(app, serde_json::json!({ "kind": "project", "slug": id }));
         }
         // toolbay://open/tools/<slug> (the website's "Open in the app"), toolbay://tool/<slug>
         "open" | "tool" | "tools" => {
             let slug = if host == "open" { segments.get(1) } else { segments.first() };
             if let Some(slug) = slug {
-                app.emit("open-route", serde_json::json!({ "kind": "tool", "slug": slug })).ok();
+                crate::firstrun::push_route(app, serde_json::json!({ "kind": "tool", "slug": slug }));
             }
         }
         _ => {}

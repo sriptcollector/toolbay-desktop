@@ -51,7 +51,10 @@ export const native = {
   onRunning: (cb: (r: RunInfo[]) => void) => on<RunInfo[]>("running-changed", cb),
   onLibrary: (cb: () => void) => on<null>("library-changed", () => cb()),
   onUpdated: (cb: (p: { slug: string; name: string; version: string }) => void) => on("tool-updated", cb),
-  onRoute: (cb: (p: { kind: string; slug: string }) => void) => on("open-route", cb),
+  /** Screens queued in Rust (first-run "Install <tool>?", toolbay://install/<slug>). */
+  routeTake: (): Promise<{ kind: string; slug: string; firstRun?: boolean }[]> =>
+    isTauri ? invoke("route_take") : Promise.resolve([]),
+  onRoutePending: (cb: () => void) => on<null>("route-pending", () => cb()),
 
   // Sign-in through the browser, handed back over toolbay://auth?code=...
   signIn: () => invoke<void>("auth_start"),

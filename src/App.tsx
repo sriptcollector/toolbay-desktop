@@ -10,6 +10,7 @@ import { ProfilePage } from "./profile";
 import { RequestsPage } from "./requests";
 import { InvitePage } from "./invite";
 import { projectsApi } from "./lib/projects";
+import { InstallPrompt, type Wish } from "./install-prompt";
 
 export type Page = "home" | "running" | "tools" | "community" | "library" | "settings" | "projects" | "profile" | "requests" | "invite";
 export interface Route {
@@ -38,7 +39,8 @@ export interface Hub {
   setJustInstalled: (s: string | null) => void;
   go: (r: Route) => void;
   toast: (m: string) => void;
-  install: (t: Tool) => Promise<void>;
+  /** Resolves true once it installed. */
+  install: (t: Tool) => Promise<boolean>;
   uninstall: (t: Tool) => Promise<void>;
   open: (t: Tool) => Promise<void>;
   hide: (t: Tool) => Promise<void>;
@@ -95,6 +97,7 @@ export default function App() {
   const [progress, setProgress] = useState<Record<string, Progress>>({});
   const [justInstalled, setJustInstalled] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [wish, setWish] = useState<Wish | null>(null);
 
   const toast = useCallback((m: string) => {
     setToastMsg(m);
@@ -102,6 +105,15 @@ export default function App() {
   }, []);
   const refreshLibrary = useCallback(() => native.library().then(setLibrary), []);
   const refreshPosts = useCallback(async () => setPosts((await api.posts()).data), []);
+
+  // Screens Rust queued: "Install <tool>?" from the installer's file name or toolbay://install/<slug>.
+  const takeRoutes = useCallback(async () => {
+    for (const r of await native.routeTake()) {
+      if (r.kind === "install" && r.slug) setWish({ slug: r.slug, firstRun: r.firstRun });
+      else if (r.kind === "project") setRoute({ page: "projects" });
+      else if (r.kind === "tool" && r.slug) setRoute({ page: "tools", slug: r.slug });
+    }
+  }, []);
 
   useEffect(() => {
     // Show the last catalog instantly; refresh it now and every 10 minutes.
@@ -137,13 +149,14 @@ export default function App() {
         if (u) toast(`You're signed in as ${u.name || u.handle}.`);
       }),
       native.onError(toast),
-      native.onRoute((r) => setRoute(r.kind === "project" ? { page: "projects" } : { page: "tools", slug: r.slug })),
+      native.onRoutePending(takeRoutes),
     ];
+    takeRoutes();
     return () => {
       window.clearInterval(catalogTimer);
       subs.forEach((p) => p.then((un) => un()));
     };
-  }, [refreshLibrary, toast]);
+  }, [refreshLibrary, toast, takeRoutes]);
 
   // Ready uploaded projects, so Library can show and open the ones you've installed.
   useEffect(() => {
@@ -191,14 +204,16 @@ export default function App() {
       addPost: (p) => setPosts((cur) => [p, ...cur.filter((x) => x.id !== p.id)]),
       signIn: () => native.signIn().catch((e) => toast(String(e))),
       install: async (t) => {
-        if (!isTauri) return;
+        if (!isTauri) return false;
         setProgress((cur) => ({ ...cur, [t.slug]: { slug: t.slug, stage: "preparing", received: 0, total: null } }));
         try {
           await native.install(t);
           await refreshLibrary();
           setJustInstalled(t.slug);
+          return true;
         } catch (e) {
           toast(String(e));
+          return false;
         }
       },
       uninstall: async (t) => {
@@ -296,6 +311,7 @@ export default function App() {
           {body}
         </div>
       </main>
+      {wish && <InstallPrompt hub={hub} wish={wish} onDone={() => setWish(null)} />}
       {toastMsg && <div className="toast">{toastMsg}</div>}
     </div>
   );

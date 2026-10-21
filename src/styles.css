@@ -244,3 +244,12 @@ textarea.input { resize: vertical; font: inherit; }
 .step-n { width: 24px; height: 24px; border-radius: 99px; background: var(--chip); color: var(--text-bright); display: grid; place-items: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
 .drop-zone { border: 1px dashed var(--line-strong); border-radius: var(--r-lg); padding: 22px; text-align: center; color: var(--muted); cursor: pointer; transition: border-color .15s var(--ease), background .15s var(--ease); }
 .drop-zone:hover, .drop-zone.over { border-color: var(--premium); background: var(--premium-tint); color: var(--text); }
+
+/* One-step "Install <tool>?" */
+.prompt-backdrop { position: fixed; inset: 0; z-index: 50; background: rgb(10 10 10 / .82); backdrop-filter: blur(6px); display: grid; place-items: center; animation: fade-in .18s var(--ease); }
+.prompt { width: min(440px, calc(100vw - 48px)); background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 32px 28px 22px; display: grid; justify-items: center; gap: 10px; text-align: center; box-shadow: 0 30px 80px -30px #000; }
+.prompt h1 { margin: 8px 0 0; font-size: 26px; }
+.prompt .lede { margin: 0 0 6px; }
+.prompt .btn.big { margin-top: 12px; width: 100%; }
+.prompt-kicker { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--premium); margin-top: 8px; }
+@keyframes fade-in { from { opacity: 0; } }
