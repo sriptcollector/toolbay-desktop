@@ -14,4 +14,5 @@ variables → Actions) and tag a release; `.github/workflows/release.yml` turns 
   `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`): Developer ID signing, notarization, stapling, `spctl` check.
 - **Windows** (`AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`, `TRUSTED_SIGNING_ACCOUNT`,
   `TRUSTED_SIGNING_PROFILE`): Azure Artifact Signing.
-- Always needed: `TAURI_SIGNING_PRIVATE_KEY` (the updater key, `~/.tauri/toolbay-updater.key`).
+- Optional: `TAURI_SIGNING_PRIVATE_KEY` (the updater key, `~/.tauri/toolbay-updater.key`) lets the
+  hub update itself. Without it releases still build and sign, just without the auto-update files.

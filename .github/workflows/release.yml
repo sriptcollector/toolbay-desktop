@@ -4,9 +4,10 @@
 #
 # Secrets (Settings > Secrets and variables > Actions). Same names as toolbay-flow, so one set
 # works for both repos; signing switches on by itself once they exist.
-#   Required
+#   Optional: auto-update for the hub itself
 #     TAURI_SIGNING_PRIVATE_KEY            contents of ~/.tauri/toolbay-updater.key (update signatures)
 #     TAURI_SIGNING_PRIVATE_KEY_PASSWORD   empty unless the key has one
+#     Without it, installers still build and sign; the release just has no latest.json.
 #   macOS: Developer ID signing + notarization (Apple Developer Program; steps in docs/SIGNING.md)
 #     APPLE_CERTIFICATE            base64 of the "Developer ID Application" .p12
 #     APPLE_CERTIFICATE_PASSWORD   password of that .p12
@@ -54,6 +55,18 @@ jobs:
         with:
           workspaces: src-tauri -> target
       - run: npm ci
+      # Without the updater key, still build and sign the installers; just skip the
+      # auto-update files (installed copies then update from the next keyed release).
+      - name: Updater signing (if configured)
+        shell: bash
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "No updater key: building installers without auto-update files"
+            node -e "const f='src-tauri/tauri.conf.json';const j=require('./'+f);j.bundle.createUpdaterArtifacts=false;require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
+            echo "INCLUDE_UPDATER_JSON=false" >> "$GITHUB_ENV"
+          else
+            echo "INCLUDE_UPDATER_JSON=true" >> "$GITHUB_ENV"
+          fi
       - run: cargo test --manifest-path src-tauri/Cargo.toml
         if: matrix.platform == 'windows-latest'
 
@@ -109,7 +122,7 @@ jobs:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
           releaseName: Toolbay v__VERSION__
           releaseDraft: true
-          includeUpdaterJson: true
+          includeUpdaterJson: ${{ env.INCLUDE_UPDATER_JSON == 'true' }}
           args: ${{ matrix.args }}
 
       # Fail the release if the Mac app, or the app inside the DMG, isn't properly sealed.
