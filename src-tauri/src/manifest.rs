@@ -158,6 +158,10 @@ pub struct Resolved {
 #[derive(Deserialize)]
 struct Release {
     tag_name: String,
+    #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    prerelease: bool,
     assets: Vec<Asset>,
 }
 
@@ -202,25 +206,50 @@ pub async fn resolve(source: &str) -> Result<Resolved, String> {
         if repo.split('/').count() != 2 {
             return Err(NOT_AVAILABLE.into());
         }
-        let (status, body) = get_text(&format!("https://api.github.com/repos/{repo}/releases/latest")).await?;
+        // The newest published release whose toolbay.json and download for this computer are
+        // already attached. A release that's still uploading its files is skipped, so a tool
+        // never looks unavailable just because a new version is being published right now.
+        let (status, body) = get_text(&format!("https://api.github.com/repos/{repo}/releases?per_page=5")).await?;
         if status == 403 || status == 429 {
             return Err("Too many update checks right now. Please try again in a few minutes.".into());
         }
         if status != 200 {
             return Err(NOT_AVAILABLE.into());
         }
-        let release: Release = serde_json::from_str(&body).map_err(|_| NOT_AVAILABLE.to_string())?;
-        let m = release
-            .assets
-            .iter()
-            .find(|a| a.name == "toolbay.json")
-            .ok_or_else(|| NOT_AVAILABLE.to_string())?;
-        let (status, body) = get_text(&m.browser_download_url).await?;
-        if status != 200 {
-            return Err(NOT_AVAILABLE.into());
+        let releases: Vec<Release> = serde_json::from_str(&body).map_err(|_| NOT_AVAILABLE.to_string())?;
+        let key = platform_key();
+        let mut found = None;
+        let mut first_err = None;
+        for release in releases.into_iter().filter(|r| !r.draft && !r.prerelease) {
+            let Some(m) = release.assets.iter().find(|a| a.name == "toolbay.json") else { continue };
+            let (status, body) = get_text(&m.browser_download_url).await?;
+            if status != 200 {
+                continue;
+            }
+            let manifest = match parse(&body) {
+                Ok(m) => m,
+                Err(e) => {
+                    first_err.get_or_insert(e);
+                    continue;
+                }
+            };
+            let ready = manifest.platforms.get(&key).is_some_and(|e| {
+                e.url.is_some() || e.asset.as_ref().is_some_and(|n| release.assets.iter().any(|a| &a.name == n))
+            });
+            if !ready {
+                if first_err.is_none() && !manifest.platforms.contains_key(&key) {
+                    first_err = Some(format!("{} isn't available for this computer yet.", manifest.name));
+                }
+                continue;
+            }
+            let tag = release.tag_name.clone();
+            found = Some((manifest, Some(release), Some(tag)));
+            break;
         }
-        let tag = release.tag_name.clone();
-        (parse(&body)?, Some(release), Some(tag))
+        match found {
+            Some(f) => f,
+            None => return Err(first_err.unwrap_or_else(|| NOT_AVAILABLE.into())),
+        }
     };
 
     let key = platform_key();
