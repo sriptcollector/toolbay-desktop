@@ -83,8 +83,8 @@ h2 { font-size: 20px; line-height: 26px; font-weight: 700; letter-spacing: -0.01
 
 /* Buttons */
 .btn {
-  height: 44px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: var(--r); border: 1px solid var(--line-strong); background: transparent; cursor: pointer;
-  font-size: 15px; font-weight: 600; color: var(--text-bright); white-space: nowrap; transition: background .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .12s var(--ease);
+  min-height: 44px; padding: 0 18px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: var(--r); border: 1px solid var(--line-strong); background: transparent; cursor: pointer;
+  font-size: 15px; font-weight: 600; color: var(--text-bright); text-align: center; transition: background .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease), transform .12s var(--ease);
   user-select: none; -webkit-user-select: none;
 }
 .btn:hover { background: var(--card-hover); border-color: var(--line-hover); }
@@ -92,7 +92,7 @@ h2 { font-size: 20px; line-height: 26px; font-weight: 700; letter-spacing: -0.01
 .btn:focus:not(:focus-visible) { outline: none; }
 .btn.primary { background: var(--accent); color: var(--accent-on); border-color: var(--accent); }
 .btn.primary:hover { background: #fff; }
-.btn.big { height: 56px; padding: 0 28px; font-size: 17px; font-weight: 700; border-radius: var(--r-lg); min-width: 180px; }
+.btn.big { min-height: 56px; padding: 0 28px; font-size: 17px; font-weight: 700; border-radius: var(--r-lg); min-width: 180px; }
 .btn.ghost { border-color: transparent; color: var(--text); }
 .btn.ghost:hover { background: rgba(255, 255, 255, 0.06); border-color: transparent; }
 .btn.danger { color: var(--danger); }
@@ -116,7 +116,7 @@ h2 { font-size: 20px; line-height: 26px; font-weight: 700; letter-spacing: -0.01
 
 .inspired { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
 .inspired img { height: 16px; width: auto; }
-.btn.small { height: 36px; padding: 0 14px; font-size: 13px; }
+.btn.small { min-height: 36px; padding: 0 14px; font-size: 13px; white-space: nowrap; }
 .nav-count.live { color: var(--premium-bright); display: inline-flex; align-items: center; gap: 5px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: var(--r-sm); background: var(--chip); border: 1px solid var(--line); color: var(--body); font-size: 13px; white-space: nowrap; }
 .chip.ok { background: var(--premium-tint); border-color: transparent; color: var(--premium-bright); }
