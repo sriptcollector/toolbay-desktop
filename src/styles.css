@@ -237,3 +237,10 @@ textarea.input { resize: vertical; font: inherit; }
 /* Invites */
 .invite-link { display: flex; gap: 8px; padding: 12px; }
 .invite-link .grow { flex: 1; }
+
+/* Package upload */
+.steps { display: grid; gap: 12px; }
+.step { display: flex; gap: 12px; align-items: flex-start; }
+.step-n { width: 24px; height: 24px; border-radius: 99px; background: var(--chip); color: var(--text-bright); display: grid; place-items: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.drop-zone { border: 1px dashed var(--line-strong); border-radius: var(--r-lg); padding: 22px; text-align: center; color: var(--muted); cursor: pointer; transition: border-color .15s var(--ease), background .15s var(--ease); }
+.drop-zone:hover, .drop-zone.over { border-color: var(--premium); background: var(--premium-tint); color: var(--text); }

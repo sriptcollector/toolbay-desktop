@@ -99,6 +99,7 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(auth::AuthState::default())
         .manage(running::RunState::default())
@@ -152,6 +153,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             api::api_request,
+            api::package_upload,
             auth::auth_start,
             auth::auth_user,
             auth::auth_sign_out,

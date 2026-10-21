@@ -9,6 +9,7 @@ import { isTauri } from "./lib/api";
 import { projectsApi, type Project } from "./lib/projects";
 import type { Tool } from "./lib/types";
 import { ForkedFrom } from "./components";
+import { PackageDrop } from "./package-drop";
 
 const ACTIVE = ["queued", "checking", "building"];
 
@@ -110,6 +111,9 @@ function Row({ hub, p, refresh }: { hub: Hub; p: Project; refresh: () => void })
           </>
         )}
         {p.message && <div className={`small ${bad ? "danger" : ""}`}>{p.message}</div>}
+        {!!p.holdReasons?.length && p.listing === "pending_review" && (
+          <div className="small muted">Waiting for a look before it's listed: {p.holdReasons.join("; ")}</div>
+        )}
         {p.listing === "rejected" && p.reviewNote && <div className="small muted">Review note: {p.reviewNote}</div>}
         {p.privacy.checks.length > 0 && (
           <button className="link small privacy-toggle" onClick={() => setOpen(!open)}>
@@ -252,6 +256,7 @@ export function ProjectsPage({ hub }: { hub: Hub }) {
           can always install your own build.
         </div>
       </div>
+      <PackageDrop hub={hub} onUploaded={refresh} />
       <h2>My projects</h2>
       {projects === null ? (
         <div className="empty">Loading…</div>

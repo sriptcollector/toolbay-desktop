@@ -94,3 +94,44 @@ pub async fn api_request(
     }
     send(&app, &method, &path, body).await
 }
+
+const PACKAGE_MAX: u64 = 80 * 1024 * 1024;
+
+/// Upload an app package (.zip) to toolbay.ai (POST /api/v1/packages, multipart field "package").
+/// Done here because the webview can't attach the Bearer token to a cross-origin upload.
+#[tauri::command]
+pub async fn package_upload(app: AppHandle, path: String) -> Result<RawResponse, String> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip")) {
+        return Err("That isn't a .zip file. Drag in the zip your AI made.".into());
+    }
+    let meta = std::fs::metadata(&p).map_err(|_| "Couldn't read that file. Try dragging it in again.".to_string())?;
+    if meta.len() > PACKAGE_MAX {
+        return Err("That zip is over 80 MB. Ask your AI to leave out big files it doesn't need.".into());
+    }
+    if token().is_none() {
+        return Err("Sign in first, then drag the zip in again.".into());
+    }
+    let bytes = tokio::fs::read(&p).await.map_err(|_| "Couldn't read that file. Try again.".to_string())?;
+    let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "package.zip".into());
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name(name)
+        .mime_str("application/zip")
+        .map_err(|e| e.to_string())?;
+    let form = reqwest::multipart::Form::new().part("package", part);
+    let res = reqwest::Client::builder()
+        .user_agent(concat!("ToolbayDesktop/", env!("CARGO_PKG_VERSION")))
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| e.to_string())?
+        .post(format!("{}/api/v1/packages", base_url(&app)))
+        .bearer_auth(token().unwrap_or_default())
+        .header("Accept", "application/json")
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|_| "The upload stopped. Check your internet connection and try again.".to_string())?;
+    let status = res.status().as_u16();
+    let body = res.text().await.map_err(|e| e.to_string())?;
+    Ok(RawResponse { status, body })
+}

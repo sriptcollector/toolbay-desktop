@@ -31,6 +31,11 @@ export interface Project {
   toolSlug: string | null;
   /** Set when this project is a fork of a tool on Toolbay. */
   forkedFrom?: { toolSlug: string; builderHandle: string } | null;
+  /** "github" or "package" (a zip uploaded from the hub or the site). */
+  source?: string;
+  aiScan?: { status: string; summary: string } | null;
+  holdReasons?: string[];
+  autoPublished?: boolean;
   createdAt: string;
   updatedAt: string;
 }

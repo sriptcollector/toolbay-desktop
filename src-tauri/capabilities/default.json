@@ -9,6 +9,7 @@
     "opener:allow-open-url",
     "deep-link:default",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "dialog:allow-open"
   ]
 }
