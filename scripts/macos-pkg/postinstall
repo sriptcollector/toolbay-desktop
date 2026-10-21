@@ -1,0 +1,4 @@
+#!/bin/sh
+# Apps placed by the macOS Installer are not flagged as downloaded; clear it anyway.
+xattr -dr com.apple.quarantine "/Applications/Toolbay.app" 2>/dev/null || true
+exit 0
