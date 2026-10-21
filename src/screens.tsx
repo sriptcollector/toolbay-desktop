@@ -2,136 +2,14 @@ import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Hub } from "./App";
 import { api, isTauri } from "./lib/api";
-import { formatSize, native, platform, type RunInfo } from "./lib/native";
-import type { ForkSummary, Resolved, Review, Tool, User } from "./lib/types";
+import { native } from "./lib/native";
+import type { ForkSummary, Review, Tool, User } from "./lib/types";
 import { ForkedFrom, Icon, Inspired, PrivacyChip, ProfileLink, Stars, timeAgo } from "./components";
 import { DropCard, DropEmailsSetting, ToolSpace } from "./spaces";
 import { shareTool } from "./invite";
+import { RunStatus, ToolControls } from "./controls";
 
 const open = (url: string) => (isTauri ? openUrl(url) : window.open(url, "_blank"));
-
-// What installing would fetch, per tool, cached for the session. null = not downloadable yet.
-const resolved = new Map<string, Promise<Resolved | null>>();
-function useResolved(tool: Tool | undefined) {
-  const [r, setR] = useState<Resolved | null | undefined>(undefined);
-  useEffect(() => {
-    if (!tool || !isTauri) return setR(null);
-    if (!resolved.has(tool.slug)) resolved.set(tool.slug, native.resolve(tool).catch(() => null));
-    let alive = true;
-    resolved.get(tool.slug)!.then((v) => alive && setR(v));
-    return () => {
-      alive = false;
-    };
-  }, [tool]);
-  return r;
-}
-
-function totalSize(r: Resolved | null | undefined) {
-  if (!r?.entry.size) return null;
-  return r.entry.size + r.manifest.files.reduce((a, f) => a + (f.size ?? 0), 0);
-}
-
-
-/** "Running · 12 min" plus Hide and Close, for a tool that's running. */
-function RunControls({ hub, tool, run }: { hub: Hub; tool: Tool; run: RunInfo }) {
-  return (
-    <div className="run-controls">
-      <span className="running">
-        <span className="dot" /> {run.window === "hidden" ? "Running in the background" : "Running"}
-      </span>
-      <span className="run-buttons">
-        {run.window !== "hidden" && (
-          <button className="btn small" disabled={!!hub.busy[tool.slug]} onClick={() => hub.hide(tool)}>
-            Hide
-          </button>
-        )}
-        <button className="btn small" disabled={!!hub.busy[tool.slug]} onClick={() => hub.close(tool)}>
-          {hub.busy[tool.slug] === "closing" ? "Closing…" : "Close"}
-        </button>
-      </span>
-    </div>
-  );
-}
-
-// ---------------- The one big button: Install / progress / Open ----------------
-
-function ActionButton({ hub, tool, big }: { hub: Hub; tool: Tool; big?: boolean }) {
-  const r = useResolved(tool);
-  const installed = hub.library.find((l) => l.slug === tool.slug);
-  const run = hub.isRunning(tool.slug);
-  const p = hub.progress[tool.slug];
-  const cls = `btn primary ${big ? "big" : ""}`;
-
-  if (p) {
-    const pct = p.total ? Math.min(1, p.received / p.total) : null;
-    const label =
-      p.stage === "installing"
-        ? "Installing…"
-        : p.stage === "preparing"
-          ? "Getting ready…"
-          : pct != null
-            ? `Downloading ${Math.round(pct * 100)}%`
-            : `Downloading ${formatSize(p.received)}`;
-    return (
-      <div className="progress-wrap">
-        <div className="progress-label">
-          <span>{label}</span>
-          {p.total && p.stage === "downloading" && (
-            <span className="muted">
-              {formatSize(p.received)} of {formatSize(p.total)}
-            </span>
-          )}
-        </div>
-        <div className={`progress ${pct == null || p.stage !== "downloading" ? "indeterminate" : ""}`}>
-          <div style={pct != null && p.stage === "downloading" ? { transform: `scaleX(${pct})` } : undefined} />
-        </div>
-      </div>
-    );
-  }
-  if (installed) {
-    return (
-      <>
-        <button className={cls} disabled={!!hub.busy[tool.slug]} onClick={() => hub.open(tool)}>
-          {hub.busy[tool.slug] === "opening" ? "Opening…" : "Open"}
-        </button>
-        {run && <RunControls hub={hub} tool={tool} run={run} />}
-      </>
-    );
-  }
-  if (!tool.platforms.includes(platform)) {
-    return (
-      <button className={cls} disabled>
-        Not on {platform === "mac" ? "Mac" : "Windows"} yet
-      </button>
-    );
-  }
-  if (r === undefined) {
-    return (
-      <button className={cls} disabled>
-        Install
-      </button>
-    );
-  }
-  if (r === null) {
-    return (
-      <>
-        <button className={cls} disabled>
-          Coming soon
-        </button>
-        <span className="muted small">Not ready to download yet.</span>
-      </>
-    );
-  }
-  const size = totalSize(r);
-  return (
-    <>
-      <button className={cls} onClick={() => hub.install(tool)}>
-        Install
-      </button>
-      <span className="muted small">Free{size ? ` · ${formatSize(size)}` : ""}</span>
-    </>
-  );
-}
 
 function ShortcutOffer({ hub, tool }: { hub: Hub; tool: Tool }) {
   if (hub.justInstalled !== tool.slug) return null;
@@ -182,7 +60,7 @@ function Hero({ hub, tool, onTitle }: { hub: Hub; tool: Tool; onTitle?: () => vo
         </div>
       </div>
       <div className="hero-action">
-        <ActionButton hub={hub} tool={tool} big />
+        <ToolControls hub={hub} tool={tool} size="hero" />
       </div>
     </div>
   );
@@ -228,15 +106,19 @@ function ToolGrid({ hub, tools }: { hub: Hub; tools?: Tool[] }) {
           <button key={t.slug} className="tile" onClick={() => hub.go({ page: "tools", slug: t.slug })}>
             <div className="tile-art">
               <Icon tool={t} />
+              {hub.isRunning(t.slug) ? (
+                <span className="tile-badge status live">
+                  <span className="dot" />
+                  Running
+                </span>
+              ) : installed ? (
+                <span className="tile-badge status ok">Installed</span>
+              ) : null}
             </div>
             <div className="tile-body">
               <div className="tile-name">{t.name}</div>
               <div className="tile-sub">
-                {hub.isRunning(t.slug) ? (
-                  "Running now"
-                ) : installed ? (
-                  "Installed"
-                ) : t.status === "early_access" ? (
+                {t.status === "early_access" ? (
                   "Early access"
                 ) : t.forkedFrom ? (
                   <ForkedFrom hub={hub} from={t.forkedFrom} />
@@ -599,29 +481,13 @@ function RunningList({ hub }: { hub: Hub }) {
       {hub.running.map((r) => {
         const t = hub.tools.find((x) => x.slug === r.slug);
         return (
-          <div className="list-row" key={r.slug}>
+          <div className="list-row tool-row" key={r.slug}>
             {t ? <Icon tool={t} /> : <div className="icon">{r.name.charAt(0)}</div>}
             <div className="grow">
               <div className="title">{r.name}</div>
-              <div className="running small">
-                <span className="dot" /> {r.window === "hidden" ? "Running in the background" : "Running"}
-              </div>
+              <div className="small muted">{r.window === "hidden" ? "Hidden, still running. Its shortcuts keep working." : "Open on your screen"}</div>
             </div>
-            {t && (
-              <div className="row" style={{ gap: 8 }}>
-                <button className="btn primary" disabled={!!hub.busy[t.slug]} onClick={() => hub.open(t)}>
-                  {hub.busy[t.slug] === "opening" ? "Opening…" : "Open"}
-                </button>
-                {r.window !== "hidden" && (
-                  <button className="btn" disabled={!!hub.busy[t.slug]} onClick={() => hub.hide(t)}>
-                    Hide
-                  </button>
-                )}
-                <button className="btn" disabled={!!hub.busy[t.slug]} onClick={() => hub.close(t)}>
-                  {hub.busy[t.slug] === "closing" ? "Closing…" : "Close"}
-                </button>
-              </div>
-            )}
+            {t ? <ToolControls hub={hub} tool={t} /> : <RunStatus run={r} />}
           </div>
         );
       })}
@@ -676,7 +542,7 @@ function OtherComputers({ hub }: { hub: Hub }) {
               <div className="title">{tool.name}</div>
               <div className="small muted">Installed on {computer}</div>
             </div>
-            <ActionButton hub={hub} tool={tool} />
+            <ToolControls hub={hub} tool={tool} />
           </div>
         ))}
       </div>
@@ -708,16 +574,14 @@ export function LibraryPage({ hub }: { hub: Hub }) {
           {hub.library.map((l) => {
             const t = mine.find((x) => x.slug === l.slug);
             return (
-              <div className="list-row clickable" key={l.slug} onClick={() => hub.go({ page: "tools", slug: l.slug })}>
+              <div className="list-row tool-row clickable" key={l.slug} onClick={() => hub.go({ page: "tools", slug: l.slug })}>
                 {t ? <Icon tool={t} /> : <div className="icon">{l.name.charAt(0)}</div>}
                 <div className="grow">
                   <div className="title">{t?.name ?? l.name}</div>
-                  <div className="small muted">
-                    {hub.isRunning(l.slug) ? "Running now" : `Version ${l.version}`}
-                  </div>
+                  <div className="small muted">Version {l.version}</div>
                 </div>
                 <div onClick={(e) => e.stopPropagation()}>
-                  {t && <ActionButton hub={hub} tool={t} />}
+                  {t && <ToolControls hub={hub} tool={t} />}
                 </div>
               </div>
             );

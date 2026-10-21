@@ -23,6 +23,17 @@ export interface Progress {
   message?: string;
 }
 
+/** Browser preview only (`npm run dev`, open with ?demo): pretend Toolbay Flow is installed and
+ * open, so screens can be designed without the desktop app. Never active inside Tauri. */
+const demo = !isTauri && new URLSearchParams(location.search).has("demo");
+const demoWindow = new URLSearchParams(location.search).get("demo") === "hidden" ? "hidden" : "shown";
+const demoLibrary = [
+  { slug: "toolbay-flow", name: "Toolbay Flow", version: "0.4.5", repo: "sriptcollector/toolbay-flow" },
+] as unknown as InstalledTool[];
+const demoRunning: RunInfo[] = [
+  { slug: "toolbay-flow", name: "Toolbay Flow", pid: 1, startedAt: Date.now() / 1000 - 600, window: demoWindow },
+];
+
 const on = <T,>(event: string, cb: (p: T) => void): Promise<UnlistenFn> =>
   isTauri ? listen<T>(event, (e) => cb(e.payload)) : Promise.resolve(() => {});
 
@@ -35,14 +46,15 @@ export function sourceOf(tool: Tool): string {
 }
 
 export const native = {
-  library: (): Promise<InstalledTool[]> => (isTauri ? invoke("library_list") : Promise.resolve([])),
+  library: (): Promise<InstalledTool[]> =>
+    isTauri ? invoke("library_list") : Promise.resolve(demo ? demoLibrary : []),
   resolve: (tool: Tool) => invoke<Resolved>("tool_resolve", { slug: tool.slug, source: sourceOf(tool) }),
   install: (tool: Tool) => invoke<InstalledTool>("tool_install", { slug: tool.slug, source: sourceOf(tool) }),
   /** Start it, or bring its window to the front if it's running. */
   open: (slug: string) => invoke<void>("tool_open", { slug }),
   hide: (slug: string) => invoke<void>("tool_hide", { slug }),
   close: (slug: string) => invoke<void>("tool_close", { slug }),
-  running: (): Promise<RunInfo[]> => (isTauri ? invoke("tool_running") : Promise.resolve([])),
+  running: (): Promise<RunInfo[]> => (isTauri ? invoke("tool_running") : Promise.resolve(demo ? demoRunning : [])),
   uninstall: (slug: string) => invoke<void>("tool_uninstall", { slug }),
   /** Keep an installed tool when its slug changes on toolbay.ai. */
   rename: (from: string, to: string) => invoke<void>("library_rename", { from, to }),

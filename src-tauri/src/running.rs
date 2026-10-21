@@ -257,8 +257,16 @@ mod native {
             if pid == found.pid && GetWindow(hwnd, GW_OWNER).is_null() && GetWindowTextLengthW(hwnd) > 0 {
                 let ex = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
                 if ex & WS_EX_TOOLWINDOW == 0 {
+                    // Size it by its normal (restored) rectangle: a minimized window's current
+                    // rectangle is a tiny stub, which made a small overlay (e.g. Flow's bar) win.
+                    let mut wp: WINDOWPLACEMENT = std::mem::zeroed();
+                    wp.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
                     let mut r: RECT = std::mem::zeroed();
-                    GetWindowRect(hwnd, &mut r);
+                    if GetWindowPlacement(hwnd, &mut wp) != 0 {
+                        r = wp.rcNormalPosition;
+                    } else {
+                        GetWindowRect(hwnd, &mut r);
+                    }
                     let area = ((r.right - r.left) as i64) * ((r.bottom - r.top) as i64);
                     found.windows.push((hwnd, area, IsWindowVisible(hwnd) != 0));
                 }
