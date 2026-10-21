@@ -2,20 +2,21 @@
 # Release with installers and latest.json for the in-app updater.
 # Run it by pushing a tag like v0.1.1, or from the Actions tab.
 #
-# Secrets (Settings > Secrets and variables > Actions):
+# Secrets (Settings > Secrets and variables > Actions). Same names as toolbay-flow, so one set
+# works for both repos; signing switches on by itself once they exist.
 #   Required
 #     TAURI_SIGNING_PRIVATE_KEY            contents of ~/.tauri/toolbay-updater.key (update signatures)
 #     TAURI_SIGNING_PRIVATE_KEY_PASSWORD   empty unless the key has one
-#   Windows code signing (Azure Artifact Signing, formerly Trusted Signing). Signing turns on when set.
-#     AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID   service principal with the "Trusted Signing Certificate Profile Signer" role
-#     AZURE_SIGNING_ENDPOINT   e.g. https://eus.codesigning.azure.net
-#     AZURE_SIGNING_ACCOUNT    signing account name
-#     AZURE_SIGNING_PROFILE    certificate profile name
-#   macOS signing + notarization (Apple Developer Program). Signing turns on when set.
+#   macOS: Developer ID signing + notarization (Apple Developer Program; steps in docs/SIGNING.md)
 #     APPLE_CERTIFICATE            base64 of the "Developer ID Application" .p12
 #     APPLE_CERTIFICATE_PASSWORD   password of that .p12
-#     APPLE_SIGNING_IDENTITY       e.g. "Developer ID Application: Toolbay (TEAMID)"
-#     APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID
+#     APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD (app-specific password)
+#     APPLE_SIGNING_IDENTITY       optional; defaults to "Developer ID Application"
+#   Windows: Azure Artifact Signing (formerly Trusted Signing)
+#     AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, TRUSTED_SIGNING_ACCOUNT, TRUSTED_SIGNING_PROFILE
+# Without the Apple secrets every Mac build is still ad-hoc signed with the hardened runtime
+# (signingIdentity "-" in tauri.conf.json), so Gatekeeper offers "Open Anyway" instead of
+# calling the app damaged.
 name: release
 on:
   push:
@@ -38,7 +39,8 @@ jobs:
             args: ""
     runs-on: ${{ matrix.platform }}
     env:
-      HAS_AZURE: ${{ secrets.AZURE_CLIENT_ID != '' }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -52,35 +54,81 @@ jobs:
         with:
           workspaces: src-tauri -> target
       - run: npm ci
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+        if: matrix.platform == 'windows-latest'
 
-      - name: Windows signing config
-        if: matrix.platform == 'windows-latest' && env.HAS_AZURE == 'true'
+      - name: Apple Developer ID signing and notarization (if configured)
+        if: matrix.platform == 'macos-latest'
         shell: bash
-        run: |
-          cargo install trusted-signing-cli --locked
-          cat > src-tauri/tauri.windows-signing.conf.json <<JSON
-          { "bundle": { "windows": { "signCommand":
-            "trusted-signing-cli -e ${{ secrets.AZURE_SIGNING_ENDPOINT }} -a ${{ secrets.AZURE_SIGNING_ACCOUNT }} -c ${{ secrets.AZURE_SIGNING_PROFILE }} -d Toolbay %1" } } }
-          JSON
-          echo "SIGN_ARGS=--config src-tauri/tauri.windows-signing.conf.json" >> "$GITHUB_ENV"
-
-      - uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ]; then
+            echo "Developer ID signing: on"
+            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE" >> "$GITHUB_ENV"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
+            echo "APPLE_SIGNING_IDENTITY=${APPLE_SIGNING_IDENTITY:-Developer ID Application}" >> "$GITHUB_ENV"
+            if [ -n "$APPLE_ID" ] && [ -n "$APPLE_TEAM_ID" ]; then
+              echo "Notarization: on"
+              echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
+              echo "APPLE_PASSWORD=${APPLE_APP_PASSWORD:-$APPLE_PASSWORD}" >> "$GITHUB_ENV"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+            fi
+          else
+            echo "No Apple certificate yet: ad-hoc signing only"
+          fi
+
+      - name: Windows signing (if configured)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          TRUSTED_SIGNING_ACCOUNT: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          TRUSTED_SIGNING_PROFILE: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+        run: |
+          if [ -n "$TRUSTED_SIGNING_ACCOUNT" ]; then
+            cargo install trusted-signing-cli --locked
+            for v in AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID; do echo "$v=${!v}" >> "$GITHUB_ENV"; done
+            node -e "const f='src-tauri/tauri.conf.json';const j=require('./'+f);j.bundle.windows.signCommand='trusted-signing-cli -e https://eus.codesigning.azure.net -a $TRUSTED_SIGNING_ACCOUNT -c $TRUSTED_SIGNING_PROFILE -d Toolbay %1';require('fs').writeFileSync(f,JSON.stringify(j,null,2))"
+          else
+            echo "No Windows signing secrets yet: unsigned installer"
+          fi
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
           releaseName: Toolbay v__VERSION__
           releaseDraft: true
           includeUpdaterJson: true
-          args: ${{ matrix.args }} ${{ env.SIGN_ARGS }}
+          args: ${{ matrix.args }}
+
+      # Fail the release if the Mac app, or the app inside the DMG, isn't properly sealed.
+      - name: Verify macOS signature
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          triple=${{ contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+          bundle=src-tauri/target/$triple/release/bundle
+          app=$(ls -d "$bundle"/macos/*.app | head -1)
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -d --entitlements :- "$app" | grep -q automation.apple-events
+          codesign -d --verbose=4 "$app" 2>&1 | grep -E "^(Authority|Signature|TeamIdentifier|Runtime|flags)" || true
+          dmg=$(ls "$bundle"/dmg/*.dmg | head -1)
+          mnt=$(hdiutil attach -nobrowse -readonly "$dmg" | tail -1 | awk -F'\t' '{print $NF}')
+          codesign --verify --deep --strict --verbose=2 "$mnt"/*.app
+          hdiutil detach "$mnt"
+          if [ -n "${APPLE_ID:-}" ]; then
+            spctl --assess --type execute --verbose=4 "$app"
+            xcrun stapler validate "$app"
+          fi

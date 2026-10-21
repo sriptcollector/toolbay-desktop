@@ -42,16 +42,8 @@ Testing a tool before it has a release: put `"source:<slug>": "file:///path/to/t
 
 ## Signing (so Windows and macOS don't warn people)
 
-Both are wired into the release workflow and switch on when the secrets listed at the top of
-`.github/workflows/release.yml` are set.
-
-- **Windows: Azure Artifact Signing** (formerly Trusted Signing), Basic plan, about $9.99/month.
-  Needs an Azure subscription and identity validation of the publisher (organization, or an individual
-  in the US/Canada). No hardware token. Alternative: an OV or EV code-signing certificate from a CA
-  (DigiCert, Sectigo, SSL.com), roughly $200–600/year, key held on a hardware token or cloud HSM.
-  SmartScreen reputation still builds with downloads either way.
-- **macOS: Apple Developer Program**, $99/year. From it, create a **Developer ID Application**
-  certificate (signing) and an app-specific password or App Store Connect API key (notarization).
-  A Developer ID Installer certificate is not needed (we ship .dmg, not .pkg).
+See [docs/SIGNING.md](docs/SIGNING.md). Mac builds are always ad-hoc signed (Gatekeeper shows
+"Open Anyway", not "damaged"); Developer ID + notarization and Windows signing turn on when the
+secrets (same names as toolbay-flow) are added to this repo.
 
 MIT licensed.
