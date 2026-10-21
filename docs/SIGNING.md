@@ -12,6 +12,13 @@ variables → Actions) and tag a release; `.github/workflows/release.yml` turns 
   release unless `codesign --verify --deep --strict` passes on the app and on the app inside the DMG.
 - **macOS with Apple secrets** (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`,
   `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD`): Developer ID signing, notarization, stapling, `spctl` check.
+  The website links the Mac **.pkg**, which needs a second certificate, **Developer ID Installer**.
+  Create it next to the Developer ID Application one, select both in Keychain Access, export them
+  as one .p12, and use that for `APPLE_CERTIFICATE`. CI then signs, notarizes and staples the .pkg, and
+  fails the release if Gatekeeper doesn't accept it.
+- **Tools installed by the hub** never get the "downloaded from the internet" flag: the hub downloads
+  them itself and clears `com.apple.quarantine` after installing. CI installs Toolbay Flow through the
+  hub on a Mac and fails if it's quarantined or doesn't open.
 - **Windows** (`AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `AZURE_TENANT_ID`, `TRUSTED_SIGNING_ACCOUNT`,
   `TRUSTED_SIGNING_PROFILE`): Azure Artifact Signing.
 - Optional: `TAURI_SIGNING_PRIVATE_KEY` (the updater key, `~/.tauri/toolbay-updater.key`) lets the

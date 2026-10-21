@@ -9,7 +9,8 @@
 #     TAURI_SIGNING_PRIVATE_KEY_PASSWORD   empty unless the key has one
 #     Without it, installers still build and sign; the release just has no latest.json.
 #   macOS: Developer ID signing + notarization (Apple Developer Program; steps in docs/SIGNING.md)
-#     APPLE_CERTIFICATE            base64 of the "Developer ID Application" .p12
+#     APPLE_CERTIFICATE            base64 of a .p12 with the "Developer ID Application" AND the
+#                                  "Developer ID Installer" certificates (the second signs the .pkg)
 #     APPLE_CERTIFICATE_PASSWORD   password of that .p12
 #     APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD (app-specific password)
 #     APPLE_SIGNING_IDENTITY       optional; defaults to "Developer ID Application"
@@ -183,16 +184,36 @@ jobs:
           app=$(ls -d src-tauri/target/$triple/release/bundle/macos/*.app | head -1)
           chmod +x scripts/macos-pkg/postinstall
           out="Toolbay_${ver}_${arch}.pkg"
-          sign=()
-          if [ -n "${APPLE_INSTALLER_IDENTITY:-}" ]; then sign=(--sign "$APPLE_INSTALLER_IDENTITY"); fi
+          # Signing the .pkg needs a "Developer ID Installer" certificate. Export it into the same .p12
+          # as the Developer ID Application one (APPLE_CERTIFICATE) and it's found automatically.
+          sign=(); inst=""
+          if [ -n "${APPLE_CERTIFICATE:-}" ]; then
+            kc="$RUNNER_TEMP/pkg.keychain-db"
+            security create-keychain -p pkg "$kc"; security set-keychain-settings "$kc"; security unlock-keychain -p pkg "$kc"
+            echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "${APPLE_CERTIFICATE_PASSWORD:-}" -T /usr/bin/pkgbuild -T /usr/bin/productsign
+            rm -f "$RUNNER_TEMP/cert.p12"
+            security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+            inst="${APPLE_INSTALLER_IDENTITY:-$(security find-identity -v "$kc" | grep -o '"Developer ID Installer[^"]*"' | head -1 | tr -d '"')}"
+            if [ -n "$inst" ]; then sign=(--sign "$inst" --keychain "$kc"); echo "Signing the .pkg as: $inst"
+            else echo "::warning::No Developer ID Installer certificate in APPLE_CERTIFICATE, so the .pkg is unsigned and macOS will warn"; fi
+          fi
           # Fixed location: never "relocate" the install onto an old copy elsewhere.
           root=$(mktemp -d); cp -R "$app" "$root/"
           pkgbuild --analyze --root "$root" comp.plist
           plutil -replace 0.BundleIsRelocatable -bool NO comp.plist
           pkgbuild --root "$root" --component-plist comp.plist --install-location /Applications             --identifier ai.toolbay.desktop.pkg --version "$ver" --scripts scripts/macos-pkg ${sign[@]+"${sign[@]}"} "$out"
-          # Gatekeeper's verdict for the downloaded package (printed, not fatal).
+          # Notarize and staple the signed .pkg so it opens with no warning, even offline.
+          notarized=""
+          if [ -n "$inst" ] && [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+            xcrun notarytool submit "$out" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+            xcrun stapler staple "$out"
+            notarized=1
+          fi
+          # Gatekeeper's verdict for the package as a browser would leave it (fatal once notarized).
           xattr -w com.apple.quarantine "0081;$(printf %x $(date +%s));Safari;" "$out"
-          echo "Gatekeeper verdict for the downloaded .pkg:"; spctl -a -vv -t install "$out" 2>&1 || true
+          echo "Gatekeeper verdict for the downloaded .pkg:"
+          if [ -n "$notarized" ]; then spctl -a -vv -t install "$out"; else spctl -a -vv -t install "$out" 2>&1 || true; fi
           xattr -d com.apple.quarantine "$out"
           # Prove it installs and the installed app is intact and not flagged.
           sudo installer -pkg "$out" -target /
