@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use tauri::Emitter;
 use tauri::{AppHandle, Manager};
 
 pub fn data_dir(app: &AppHandle) -> PathBuf {
@@ -104,6 +105,20 @@ pub fn upsert(app: &AppHandle, entry: InstalledTool) -> Result<(), String> {
     lib.retain(|t| t.slug != entry.slug);
     lib.push(entry);
     save_library(app, &lib)
+}
+
+/// A tool's slug changed on toolbay.ai (e.g. toolbay-notes -> cereal): keep the installed copy.
+#[tauri::command]
+pub fn library_rename(app: AppHandle, from: String, to: String) -> Result<(), String> {
+    let mut lib = library(&app);
+    if from == to || lib.iter().any(|t| t.slug == to) {
+        return Ok(());
+    }
+    let Some(t) = lib.iter_mut().find(|t| t.slug == from) else { return Ok(()) };
+    t.slug = to;
+    save_library(&app, &lib)?;
+    app.emit("library-changed", ()).ok();
+    Ok(())
 }
 
 #[tauri::command]

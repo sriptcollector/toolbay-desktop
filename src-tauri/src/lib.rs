@@ -158,6 +158,7 @@ pub fn run() {
             api::api_request,
             api::package_upload,
             firstrun::route_take,
+            store::library_rename,
             auth::auth_start,
             auth::auth_user,
             auth::auth_sign_out,

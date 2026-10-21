@@ -44,6 +44,8 @@ export const native = {
   close: (slug: string) => invoke<void>("tool_close", { slug }),
   running: (): Promise<RunInfo[]> => (isTauri ? invoke("tool_running") : Promise.resolve([])),
   uninstall: (slug: string) => invoke<void>("tool_uninstall", { slug }),
+  /** Keep an installed tool when its slug changes on toolbay.ai. */
+  rename: (from: string, to: string) => invoke<void>("library_rename", { from, to }),
   shortcut: (slug: string) => invoke<string>("tool_shortcut", { slug }),
   reveal: (slug: string) => invoke<void>("tool_reveal", { slug }),
 

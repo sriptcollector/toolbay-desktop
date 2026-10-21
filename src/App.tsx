@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, bundledTools, isTauri } from "./lib/api";
-import { native, type Progress, type RunInfo } from "./lib/native";
+import { native, sourceOf, type Progress, type RunInfo } from "./lib/native";
 import type { InstalledTool, Post, Tool, User } from "./lib/types";
 import { NavIcon } from "./components";
 import logo from "./assets/logo.png";
@@ -59,6 +59,9 @@ const NAV: { page: Page; label: string }[] = [
   { page: "requests", label: "Requests" },
 ];
 
+/** Tools whose slug changed on toolbay.ai, so old links and installs still find them. */
+const RENAMED: Record<string, string> = { "toolbay-notes": "cereal" };
+
 /** Keep Toolbay itself up to date without asking: download, install quietly, restart. */
 async function updateHubQuietly() {
   try {
@@ -106,10 +109,21 @@ export default function App() {
   const refreshLibrary = useCallback(() => native.library().then(setLibrary), []);
   const refreshPosts = useCallback(async () => setPosts((await api.posts()).data), []);
 
+  // A tool renamed on toolbay.ai (same repo, new slug) stays installed under its new slug.
+  useEffect(() => {
+    if (!isTauri || !live) return;
+    const repo = (s: string) => s.toLowerCase().replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "");
+    for (const inst of library) {
+      if (tools.some((t) => t.slug === inst.slug)) continue;
+      const match = tools.find((t) => repo(sourceOf(t)) === repo(inst.repo) || RENAMED[inst.slug] === t.slug);
+      if (match) native.rename(inst.slug, match.slug).then(refreshLibrary).catch(() => {});
+    }
+  }, [tools, library, live, refreshLibrary]);
+
   // Screens Rust queued: "Install <tool>?" from the installer's file name or toolbay://install/<slug>.
   const takeRoutes = useCallback(async () => {
     for (const r of await native.routeTake()) {
-      if (r.kind === "install" && r.slug) setWish({ slug: r.slug, firstRun: r.firstRun });
+      if (r.kind === "install" && r.slug) setWish({ slug: RENAMED[r.slug] ?? r.slug, firstRun: r.firstRun, alias: r.slug });
       else if (r.kind === "project") setRoute({ page: "projects" });
       else if (r.kind === "tool" && r.slug) setRoute({ page: "tools", slug: r.slug });
     }

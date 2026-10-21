@@ -8,11 +8,14 @@ import { Icon, Inspired } from "./components";
 export interface Wish {
   slug: string;
   firstRun?: boolean;
+  /** The slug the link used, if it was renamed since (tried when the new one isn't listed yet). */
+  alias?: string;
 }
 
 export function InstallPrompt({ hub, wish, onDone }: { hub: Hub; wish: Wish; onDone: () => void }) {
-  const tool = [...hub.tools, ...hub.projectTools].find((t) => t.slug === wish.slug);
-  const installed = hub.library.some((t) => t.slug === wish.slug);
+  const all = [...hub.tools, ...hub.projectTools];
+  const tool = all.find((t) => t.slug === wish.slug) ?? all.find((t) => t.slug === wish.alias);
+  const installed = !!tool && hub.library.some((t) => t.slug === tool.slug);
 
   // Unknown tool once the catalog is in: say so instead of waiting forever.
   useEffect(() => {
