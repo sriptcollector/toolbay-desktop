@@ -179,4 +179,17 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "/Applications/Toolbay.app"
           if xattr -p com.apple.quarantine "/Applications/Toolbay.app" 2>/dev/null; then echo "installed app is quarantined"; exit 1; fi
           echo "Installed app is clean."
-          gh release upload "$GITHUB_REF_NAME" "$out" --clobber
+          # Also under a fixed name, so releases/latest/download/Toolbay_<arch>.pkg never changes.
+          cp "$out" "Toolbay_${arch}.pkg"
+          gh release upload "$GITHUB_REF_NAME" "$out" "Toolbay_${arch}.pkg" --clobber
+
+      - name: Windows installer under a fixed name
+        if: matrix.platform == 'windows-latest' && github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          exe=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
+          cp "$exe" Toolbay_x64-setup.exe
+          gh release upload "$GITHUB_REF_NAME" Toolbay_x64-setup.exe --clobber
