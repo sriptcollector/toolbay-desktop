@@ -153,5 +153,8 @@ async fn exchange(app: &AppHandle, code: &str) -> Result<(), String> {
     let user = json["user"].clone();
     store::settings_set(app.clone(), "user".into(), user.to_string())?;
     app.emit("auth-changed", user).ok();
+    // Bring this computer's settings and library in line with the account right away.
+    crate::sync::pull(app).await;
+    crate::sync::push_library(app);
     Ok(())
 }

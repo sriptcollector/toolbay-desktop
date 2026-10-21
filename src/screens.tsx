@@ -632,6 +632,40 @@ export function RunningPage({ hub }: { hub: Hub }) {
 
 // ---------------- Library ----------------
 
+/** Tools on the person's other computers that aren't installed here, with one-click Install. */
+function OtherComputers({ hub }: { hub: Hub }) {
+  const [items, setItems] = useState<{ slug: string; computer: string }[]>([]);
+  useEffect(() => {
+    const load = () => native.otherComputersTools().then(setItems);
+    load();
+    const un = native.onSync(load);
+    return () => {
+      un.then((f) => f());
+    };
+  }, [hub.library]);
+  const tools = items
+    .map((i) => ({ ...i, tool: hub.tools.find((t) => t.slug === i.slug) }))
+    .filter((i): i is { slug: string; computer: string; tool: Tool } => !!i.tool);
+  if (!tools.length) return null;
+  return (
+    <>
+      <h2>On your other computers</h2>
+      <div className="panel">
+        {tools.map(({ tool, computer }) => (
+          <div className="list-row" key={tool.slug}>
+            <Icon tool={tool} />
+            <div className="grow">
+              <div className="title">{tool.name}</div>
+              <div className="small muted">Installed on {computer}</div>
+            </div>
+            <ActionButton hub={hub} tool={tool} />
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 export function LibraryPage({ hub }: { hub: Hub }) {
   const mine = [...hub.tools, ...hub.projectTools].filter((t) => hub.library.some((l) => l.slug === t.slug));
   return (
@@ -643,6 +677,7 @@ export function LibraryPage({ hub }: { hub: Hub }) {
         </button>
       </div>
       <p className="lede">Everything you've installed. Updates happen by themselves.</p>
+      {hub.user && <OtherComputers hub={hub} />}
       {hub.library.length === 0 ? (
         <div className="empty">
           Nothing installed yet.{" "}

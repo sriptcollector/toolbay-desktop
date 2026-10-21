@@ -60,6 +60,10 @@ export const native = {
   onAuth: (cb: (u: User | null) => void) => on<User | null>("auth-changed", cb),
   onError: (cb: (m: string) => void) => on<string>("auth-error", cb),
 
+  otherComputersTools: (): Promise<{ slug: string; computer: string }[]> =>
+    isTauri ? invoke("sync_other_tools") : Promise.resolve([]),
+  onSync: (cb: () => void) => on<null>("sync-changed", () => cb()),
+
   settings: (): Promise<Record<string, string>> => (isTauri ? invoke("settings_get") : Promise.resolve({})),
   setSetting: (key: string, value: string) => invoke<void>("settings_set", { key, value }),
 };

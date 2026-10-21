@@ -45,8 +45,13 @@ pub fn settings_get(app: AppHandle) -> Settings {
 #[tauri::command]
 pub fn settings_set(app: AppHandle, key: String, value: String) -> Result<(), String> {
     let mut s = settings(&app);
-    s.insert(key, value);
-    write_json(data_dir(&app).join("settings.json"), &s)
+    let changed = s.get(&key) != Some(&value);
+    s.insert(key.clone(), value);
+    write_json(data_dir(&app).join("settings.json"), &s)?;
+    if changed && crate::sync::is_synced_setting(&key) {
+        crate::sync::push_settings(&app);
+    }
+    Ok(())
 }
 
 // ---- library (installed tools) ----
@@ -89,7 +94,9 @@ pub fn library(app: &AppHandle) -> Vec<InstalledTool> {
 }
 
 pub fn save_library(app: &AppHandle, lib: &[InstalledTool]) -> Result<(), String> {
-    write_json(data_dir(app).join("library.json"), &lib)
+    write_json(data_dir(app).join("library.json"), &lib)?;
+    crate::sync::push_library(app);
+    Ok(())
 }
 
 pub fn upsert(app: &AppHandle, entry: InstalledTool) -> Result<(), String> {

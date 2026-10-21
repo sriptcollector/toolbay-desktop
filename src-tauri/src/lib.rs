@@ -4,6 +4,7 @@ mod installer;
 mod manifest;
 mod running;
 mod store;
+mod sync;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -136,6 +137,7 @@ pub fn run() {
             let _ = installer::APP.set(handle.clone());
             build_tray(&handle)?;
             running::start(&handle);
+            sync::start(&handle);
             installer::start_auto_update(&handle);
             Ok(())
         })
@@ -163,6 +165,7 @@ pub fn run() {
             running::tool_open,
             running::tool_hide,
             running::tool_close,
+            sync::sync_other_tools,
             installer::tool_uninstall,
             installer::tool_shortcut,
             installer::tool_reveal,
