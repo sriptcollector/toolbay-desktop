@@ -1,6 +1,6 @@
 [package]
 name = "toolbay-desktop"
-version = "0.1.3"
+version = "0.1.4"
 description = "Toolbay: one free launcher for open-source tools"
 authors = ["Toolbay"]
 license = "MIT"

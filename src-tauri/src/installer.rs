@@ -474,10 +474,7 @@ async fn install_dmg(file: &Path, root: &Path, app_name: Option<&str>) -> Result
     if !ok {
         return Err(DAMAGED.into());
     }
-    let src = std::fs::read_dir(&mount).into_iter().flatten().flatten().map(|e| e.path()).find(|p| match app_name {
-        Some(n) => p.file_name().is_some_and(|f| f == n),
-        None => p.extension().is_some_and(|x| x == "app"),
-    });
+    let src = app_in_volume(&mount, app_name);
     let result = match src {
         Some(src) => {
             let dest = root.join(src.file_name().unwrap());
@@ -498,6 +495,44 @@ async fn install_dmg(file: &Path, root: &Path, app_name: Option<&str>) -> Result
     let _ = tokio::process::Command::new("hdiutil").args(["detach", "-quiet"]).arg(&mount).status().await;
     std::fs::remove_dir_all(&mount).ok();
     result
+}
+
+/// The .app to copy out of a mounted DMG. Prefers the manifest's `app`, matched without case
+/// (Mac volumes are case-insensitive, and a manifest saying "Bedrock.app" for a bundle named
+/// "bedrock.app" must still install), then the only .app at the top, then the shallowest one
+/// within two folders. Skips the "Applications" shortcut most DMGs carry.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn app_in_volume(mount: &Path, app_name: Option<&str>) -> Option<PathBuf> {
+    let is_app = |p: &Path| {
+        p.extension().is_some_and(|x| x.eq_ignore_ascii_case("app"))
+            && !p.is_symlink()
+            && p.is_dir()
+    };
+    let mut apps: Vec<PathBuf> = vec![];
+    let mut stack = vec![(mount.to_path_buf(), 0)];
+    while let Some((d, depth)) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if is_app(&p) {
+                apps.push(p);
+            } else if depth < 2 && p.is_dir() && !p.is_symlink() {
+                stack.push((p, depth + 1));
+            }
+        }
+    }
+    apps.sort_by_key(|p| p.components().count());
+    if let Some(n) = app_name {
+        let n = n.to_lowercase();
+        if let Some(p) = apps.iter().find(|p| p.file_name().is_some_and(|f| f.to_string_lossy().to_lowercase() == n)) {
+            return Some(p.clone());
+        }
+    }
+    let top = mount.components().count() + 1;
+    let at_top: Vec<&PathBuf> = apps.iter().filter(|p| p.components().count() == top).collect();
+    if at_top.len() == 1 {
+        return Some(at_top[0].clone());
+    }
+    apps.into_iter().next()
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -740,4 +775,46 @@ pub fn ci_smoke_test(app: &AppHandle) {
         });
         app.exit(if result.is_ok() { 0 } else { 1 });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::app_in_volume;
+
+    fn volume(apps: &[&str]) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!("toolbay-vol-{}", uuid::Uuid::new_v4()));
+        for a in apps {
+            std::fs::create_dir_all(root.join(a).join("Contents")).unwrap();
+        }
+        std::fs::create_dir_all(root.join(".background")).unwrap();
+        root
+    }
+
+    fn name(p: Option<std::path::PathBuf>) -> String {
+        p.and_then(|p| p.file_name().map(|f| f.to_string_lossy().into_owned())).unwrap_or_default()
+    }
+
+    #[test]
+    fn manifest_name_matches_without_case() {
+        let v = volume(&["bedrock.app"]);
+        assert_eq!(name(app_in_volume(&v, Some("Bedrock.app"))), "bedrock.app");
+    }
+
+    #[test]
+    fn wrong_manifest_name_falls_back_to_the_only_app() {
+        let v = volume(&["Cereal.app"]);
+        assert_eq!(name(app_in_volume(&v, Some("Toolbay Notes.app"))), "Cereal.app");
+    }
+
+    #[test]
+    fn exact_name_wins_over_other_apps() {
+        let v = volume(&["Helper.app", "Toolbay Flow.app"]);
+        assert_eq!(name(app_in_volume(&v, Some("Toolbay Flow.app"))), "Toolbay Flow.app");
+    }
+
+    #[test]
+    fn finds_an_app_one_folder_down() {
+        let v = volume(&["Bedrock/Bedrock.app"]);
+        assert_eq!(name(app_in_volume(&v, Some("Bedrock.app"))), "Bedrock.app");
+    }
 }
