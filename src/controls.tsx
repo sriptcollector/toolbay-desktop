@@ -53,6 +53,12 @@ export function ToolControls({ hub, tool, size = "row" }: { hub: Hub; tool: Tool
   const p = hub.progress[tool.slug];
   const busy = hub.busy[tool.slug];
   const big = size === "hero";
+  const update = installed ? hub.pendingUpdates[tool.slug] : undefined;
+  const updateBtn = update && (
+    <button className="btn small" disabled={!!busy} onClick={() => hub.update(tool)} title={`Closes ${tool.name}, updates it, and opens it again`}>
+      Update to {update}
+    </button>
+  );
   const primary = `btn primary ${big ? "big" : ""}`;
   const secondary = "btn small";
 
@@ -69,6 +75,7 @@ export function ToolControls({ hub, tool, size = "row" }: { hub: Hub; tool: Tool
         </div>
         <div className="controls-sub">
           <RunStatus run={run} />
+          {updateBtn}
           {!hidden && (
             <button className={secondary} disabled={!!busy} onClick={() => hub.hide(tool)}>
               {busy === "hiding" ? "Hiding…" : "Hide"}
@@ -115,6 +122,7 @@ export function ToolControls({ hub, tool, size = "row" }: { hub: Hub; tool: Tool
   return (
     <div className={`controls controls-${size}`}>
       <div className="controls-main">{button}</div>
+      {updateBtn && <div className="controls-sub">{updateBtn}</div>}
       {big && note && <div className="controls-sub note">{note}</div>}
     </div>
   );

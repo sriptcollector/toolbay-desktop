@@ -711,24 +711,97 @@ fn source_for(app: &AppHandle, t: &InstalledTool) -> String {
     store::setting(app, &format!("source:{}", t.slug)).unwrap_or_else(|| t.repo.clone())
 }
 
-pub async fn update_one(app: &AppHandle, slug: &str) {
-    if store::setting(app, "autoUpdate").as_deref() == Some("false") || is_running(app, slug) {
-        return;
+/// Tools being updated right now, so "Update now" and the update that runs when a tool
+/// closes never install the same tool twice at once.
+static UPDATING: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn begin_update(slug: &str) -> bool {
+    let mut u = UPDATING.lock().unwrap();
+    if u.iter().any(|s| s == slug) {
+        return false;
     }
+    u.push(slug.to_string());
+    true
+}
+
+fn end_update(slug: &str) {
+    UPDATING.lock().unwrap().retain(|s| s != slug);
+}
+
+fn pending_key(slug: &str) -> String {
+    format!("pendingUpdate:{slug}")
+}
+
+/// Look for a newer version. A tool that's closed is updated right away; one that's open (Flow
+/// lives in the menu bar, so it's nearly always open) gets an "Update" button in the hub instead,
+/// and is updated by itself the next time it closes.
+pub async fn update_one(app: &AppHandle, slug: &str) {
     let Some(t) = store::library(app).into_iter().find(|t| t.slug == slug) else { return };
     let source = source_for(app, &t);
     let Ok(r) = manifest::resolve(&source).await else { return };
     if !manifest::newer(&r.manifest.version, &t.version) {
+        store::settings_set(app.clone(), pending_key(slug), String::new()).ok();
         return;
     }
-    if install_tool(app.clone(), slug.to_string(), source).await.is_ok() {
-        app.emit("tool-updated", serde_json::json!({ "slug": slug, "name": t.name, "version": r.manifest.version }))
+    let auto = store::setting(app, "autoUpdate").as_deref() != Some("false");
+    if auto && !is_running(app, slug) {
+        if !begin_update(slug) {
+            return;
+        }
+        let ok = install_tool(app.clone(), slug.to_string(), source).await.is_ok();
+        end_update(slug);
+        if ok {
+            store::settings_set(app.clone(), pending_key(slug), String::new()).ok();
+            app.emit("tool-updated", serde_json::json!({ "slug": slug, "name": t.name, "version": r.manifest.version }))
+                .ok();
+        }
+        return;
+    }
+    let was = store::setting(app, &pending_key(slug)).unwrap_or_default();
+    store::settings_set(app.clone(), pending_key(slug), r.manifest.version.clone()).ok();
+    if was != r.manifest.version {
+        app.emit("tool-update-ready", serde_json::json!({ "slug": slug, "name": t.name, "version": r.manifest.version }))
             .ok();
     }
 }
 
-/// Check every installed tool shortly after start, then every 6 hours. Tools that are
-/// open are skipped and updated when they close.
+/// Versions waiting to be installed, by slug (tools that were open when the update was found).
+#[tauri::command]
+pub fn tool_pending_updates(app: AppHandle) -> std::collections::HashMap<String, String> {
+    store::library(&app)
+        .into_iter()
+        .filter_map(|t| {
+            let v = store::setting(&app, &pending_key(&t.slug)).filter(|v| !v.is_empty())?;
+            manifest::newer(&v, &t.version).then_some((t.slug, v))
+        })
+        .collect()
+}
+
+/// "Update now": close the tool if it's open, install the new version, and open it again.
+#[tauri::command]
+pub async fn tool_update_now(app: AppHandle, slug: String) -> Result<InstalledTool, String> {
+    let t = find(&app, &slug)?;
+    if !begin_update(&slug) {
+        return Err(format!("{} is already updating.", t.name));
+    }
+    let was_running = is_running(&app, &slug);
+    if was_running {
+        crate::running::close(&app, &slug).await;
+    }
+    let source = source_for(&app, &t);
+    let result = install_tool(app.clone(), slug.clone(), source).await;
+    end_update(&slug);
+    if let Ok(new) = &result {
+        store::settings_set(app.clone(), pending_key(&slug), String::new()).ok();
+        app.emit("tool-updated", serde_json::json!({ "slug": slug, "name": new.name, "version": new.version })).ok();
+    }
+    if was_running {
+        tool_launch(app.clone(), slug).ok();
+    }
+    result
+}
+
+/// Check every installed tool shortly after start, then every 30 minutes.
 pub fn start_auto_update(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -737,7 +810,7 @@ pub fn start_auto_update(app: &AppHandle) {
             for t in store::library(&app) {
                 update_one(&app, &t.slug).await;
             }
-            tokio::time::sleep(Duration::from_secs(6 * 3600)).await;
+            tokio::time::sleep(Duration::from_secs(30 * 60)).await;
         }
     });
 }

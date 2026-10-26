@@ -167,6 +167,8 @@ pub fn run() {
             store::library_list,
             installer::tool_resolve,
             installer::tool_install,
+            installer::tool_pending_updates,
+            installer::tool_update_now,
             installer::tool_launch,
             running::tool_running,
             running::tool_open,

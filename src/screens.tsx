@@ -281,7 +281,7 @@ export function ToolDetail({ hub, slug }: { hub: Hub; slug: string }) {
             )}
           </div>
           <div className="small muted" style={{ marginTop: 8 }}>
-            Updates install by themselves when {tool.name} isn't open.
+            Toolbay checks for updates every 30 minutes. They install by themselves when {tool.name} is closed, or right away with Update.
           </div>
         </>
       )}

@@ -34,6 +34,8 @@ export interface Hub {
   /** Per tool: an Open/Hide/Close in flight. */
   busy: Record<string, "opening" | "hiding" | "closing">;
   progress: Record<string, Progress>;
+  /** Newer versions waiting for "Update now", by slug. */
+  pendingUpdates: Record<string, string>;
   /** Slug of a tool that just finished installing (to offer a desktop shortcut). */
   justInstalled: string | null;
   setJustInstalled: (s: string | null) => void;
@@ -45,6 +47,8 @@ export interface Hub {
   open: (t: Tool) => Promise<void>;
   hide: (t: Tool) => Promise<void>;
   close: (t: Tool) => Promise<void>;
+  /** Close it if open, install the waiting version, open it again. */
+  update: (t: Tool) => Promise<void>;
   refreshPosts: () => Promise<void>;
   addPost: (p: Post) => void;
   signIn: () => void;
@@ -99,6 +103,7 @@ export default function App() {
   const [live, setLive] = useState(true);
   const [progress, setProgress] = useState<Record<string, Progress>>({});
   const [justInstalled, setJustInstalled] = useState<string | null>(null);
+  const [pendingUpdates, setPendingUpdates] = useState<Record<string, string>>({});
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [wish, setWish] = useState<Wish | null>(null);
 
@@ -106,7 +111,10 @@ export default function App() {
     setToastMsg(m);
     window.setTimeout(() => setToastMsg((cur) => (cur === m ? null : cur)), 4500);
   }, []);
-  const refreshLibrary = useCallback(() => native.library().then(setLibrary), []);
+  const refreshLibrary = useCallback(() => {
+    native.pendingUpdates().then(setPendingUpdates).catch(() => {});
+    return native.library().then(setLibrary);
+  }, []);
   const refreshPosts = useCallback(async () => setPosts((await api.posts()).data), []);
 
   // A tool renamed on toolbay.ai (same repo, new slug) stays installed under its new slug.
@@ -157,7 +165,14 @@ export default function App() {
       ),
       native.onRunning(setRunning),
       native.onLibrary(refreshLibrary),
-      native.onUpdated((u) => toast(`${u.name} was updated to ${u.version}.`)),
+      native.onUpdated((u) => {
+        toast(`${u.name} was updated to ${u.version}.`);
+        refreshLibrary();
+      }),
+      native.onUpdateReady((u) => {
+        native.pendingUpdates().then(setPendingUpdates).catch(() => {});
+        toast(`${u.name} ${u.version} is ready. Click Update on its page.`);
+      }),
       native.onAuth((u) => {
         setUser(u);
         if (u) toast(`You're signed in as ${u.name || u.handle}.`);
@@ -210,6 +225,7 @@ export default function App() {
       loaded,
       busy,
       progress,
+      pendingUpdates,
       justInstalled,
       setJustInstalled,
       go: setRoute,
@@ -242,8 +258,18 @@ export default function App() {
       open: (t) => act(t, "opening", () => native.open(t.slug)),
       hide: (t) => act(t, "hiding", () => native.hide(t.slug)),
       close: (t) => act(t, "closing", () => native.close(t.slug)),
+      update: async (t) => {
+        setProgress((cur) => ({ ...cur, [t.slug]: { slug: t.slug, stage: "preparing", received: 0, total: null } }));
+        try {
+          await native.updateNow(t.slug);
+        } catch (e) {
+          toast(String(e));
+        } finally {
+          await refreshLibrary();
+        }
+      },
     }),
-    [tools, projectTools, posts, library, running, user, live, loaded, busy, progress, justInstalled, toast, refreshPosts, refreshLibrary, act],
+    [tools, projectTools, posts, library, running, user, live, loaded, busy, progress, pendingUpdates, justInstalled, toast, refreshPosts, refreshLibrary, act],
   );
 
   let body: React.ReactNode;

@@ -65,6 +65,11 @@ export const native = {
   onRunning: (cb: (r: RunInfo[]) => void) => on<RunInfo[]>("running-changed", cb),
   onLibrary: (cb: () => void) => on<null>("library-changed", () => cb()),
   onUpdated: (cb: (p: { slug: string; name: string; version: string }) => void) => on("tool-updated", cb),
+  /** A newer version was found for a tool that's open; it waits for "Update now" or for the tool to close. */
+  onUpdateReady: (cb: (p: { slug: string; name: string; version: string }) => void) => on("tool-update-ready", cb),
+  pendingUpdates: (): Promise<Record<string, string>> => (isTauri ? invoke("tool_pending_updates") : Promise.resolve({})),
+  /** Close the tool if it's open, install the new version, open it again. */
+  updateNow: (slug: string) => invoke<InstalledTool>("tool_update_now", { slug }),
   /** Screens queued in Rust (first-run "Install <tool>?", toolbay://install/<slug>). */
   routeTake: (): Promise<{ kind: string; slug: string; firstRun?: boolean }[]> =>
     isTauri ? invoke("route_take") : Promise.resolve([]),
