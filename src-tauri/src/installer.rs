@@ -47,7 +47,7 @@ fn valid_slug(slug: &str) -> bool {
 
 fn tools_root(app: &AppHandle) -> PathBuf {
     #[cfg(target_os = "macos")]
-    let root = app.path().home_dir().expect("home").join("Applications").join("Toolbay");
+    let root = mac_root(app);
     #[cfg(not(target_os = "macos"))]
     let root = app.path().local_data_dir().expect("local data").join("Programs").join("Toolbay Tools");
     std::fs::create_dir_all(&root).ok();
@@ -475,37 +475,87 @@ fn bundle_id(app: &Path) -> Option<String> {
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// Where a Mac tool goes. One copy only: the one already in /Applications (what people pin to
-/// the Dock), else the one Toolbay installed before, else ~/Applications/Toolbay. Two copies
-/// meant two Dock icons, and macOS permissions granted to one didn't apply to the other.
+/// Every Mac tool lives in one folder, /Applications/Toolbay (or ~/Applications/Toolbay when
+/// /Applications isn't writable), and nowhere else: two copies meant two Dock icons, and macOS
+/// permissions granted to one didn't apply to the other.
 #[cfg(target_os = "macos")]
-fn mac_target(root: &Path, name: &std::ffi::OsStr, id: Option<&str>, previous: Option<PathBuf>) -> (PathBuf, Vec<PathBuf>) {
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    let mut places = vec![PathBuf::from("/Applications").join(name)];
-    places.extend(previous);
-    places.push(root.join(name));
-    places.push(home.join("Applications").join(name));
-    let same = |p: &PathBuf| p.is_dir() && id.map_or(p.starts_with(root), |id| bundle_id(p).as_deref() == Some(id));
-    let mut copies: Vec<PathBuf> = Vec::new();
-    for p in places {
-        if same(&p) && !copies.contains(&p) {
-            copies.push(p);
-        }
+fn mac_root(app: &AppHandle) -> PathBuf {
+    let sys = PathBuf::from("/Applications/Toolbay");
+    if std::fs::create_dir_all(&sys).is_ok() && dir_writable(&sys) {
+        return sys;
     }
-    // Only keep the /Applications copy if Toolbay can update it.
-    copies.retain(|p| !p.starts_with("/Applications") || writable(p));
-    let target = copies.first().cloned().unwrap_or_else(|| root.join(name));
-    let others = copies.into_iter().filter(|p| *p != target).collect();
-    (target, others)
+    app.path().home_dir().expect("home").join("Applications").join("Toolbay")
 }
 
 #[cfg(target_os = "macos")]
-fn writable(p: &Path) -> bool {
-    // A copy installed by a .pkg belongs to the system, and Toolbay can't update it in place.
-    let probe = p.join("Contents").join(".toolbay-write-test");
+fn dir_writable(d: &Path) -> bool {
+    let probe = d.join(".toolbay-write-test");
     let ok = std::fs::File::create(&probe).is_ok();
     std::fs::remove_file(&probe).ok();
     ok
+}
+
+/// Other copies of the same app (same bundle id) in the usual places, excluding `target`.
+#[cfg(target_os = "macos")]
+fn mac_copies(target: &Path, name: &std::ffi::OsStr, id: Option<&str>, previous: Option<PathBuf>) -> Vec<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let mut places = vec![
+        PathBuf::from("/Applications").join(name),
+        PathBuf::from("/Applications/Toolbay").join(name),
+        home.join("Applications").join(name),
+        home.join("Applications").join("Toolbay").join(name),
+    ];
+    places.extend(previous);
+    let Some(id) = id else { return vec![] };
+    let mut out: Vec<PathBuf> = Vec::new();
+    for p in places {
+        if p != target && p.is_dir() && !out.contains(&p) && bundle_id(&p).as_deref() == Some(id) {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// Where a Mac tool goes, plus the stray copies to clean up. A stray copy Toolbay can move is
+/// moved into place first (the Dock and macOS keep treating it as the same app).
+#[cfg(target_os = "macos")]
+fn mac_target(root: &Path, name: &std::ffi::OsStr, id: Option<&str>, previous: Option<PathBuf>) -> (PathBuf, Vec<PathBuf>) {
+    let target = root.join(name);
+    let mut others = mac_copies(&target, name, id, previous);
+    if !target.exists() {
+        if let Some(i) = others.iter().position(|p| std::fs::rename(p, &target).is_ok()) {
+            others.remove(i);
+        }
+    }
+    (target, others)
+}
+
+/// Remove stray copies. Ones owned by the system (an old .pkg install) need an admin password,
+/// so macOS asks once, saying why. Only ever removes `.app` bundles in Applications folders.
+#[cfg(target_os = "macos")]
+fn remove_copies(app_name: &str, copies: Vec<PathBuf>) {
+    let mut stubborn = vec![];
+    for c in copies {
+        if std::fs::remove_dir_all(&c).is_err() && c.exists() {
+            stubborn.push(c);
+        }
+    }
+    let safe: Vec<String> = stubborn
+        .iter()
+        .filter(|p| p.extension().is_some_and(|e| e == "app") && p.to_string_lossy().contains("/Applications/"))
+        .map(|p| format!("'{}'", p.to_string_lossy().replace('\'', "'\\''")))
+        .collect();
+    if safe.is_empty() {
+        return;
+    }
+    let cmd = format!("/bin/rm -rf {}", safe.join(" "));
+    let prompt = format!("Toolbay found an older copy of {app_name} it can't update. Remove it so you only have one?");
+    let script = format!(
+        "do shell script \"{}\" with administrator privileges with prompt \"{}\"",
+        cmd.replace('\\', "\\\\").replace('"', "\\\""),
+        prompt.replace('"', "'")
+    );
+    let _ = std::process::Command::new("/usr/bin/osascript").arg("-e").arg(script).status();
 }
 
 #[cfg(target_os = "macos")]
@@ -560,9 +610,8 @@ async fn install_dmg(
                     .unwrap_or(false);
             }
             if copied {
-                for o in others {
-                    std::fs::remove_dir_all(&o).ok();
-                }
+                let name = dest.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                remove_copies(&name, others);
                 // Tell Launch Services this is the copy to open.
                 let _ = tokio::process::Command::new(
                     "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
@@ -888,12 +937,56 @@ async fn update_now(app: &AppHandle, slug: &str) -> Result<InstalledTool, String
     result
 }
 
+/// Mac: move every installed tool into the one Toolbay folder and clear out duplicates, so each
+/// app exists once (one Dock icon, one set of permissions). Tools that are open are left until
+/// they're closed. macOS asks for a password at most once per stray system-owned copy.
+#[cfg(target_os = "macos")]
+fn consolidate_mac(app: &AppHandle) {
+    let root = tools_root(app);
+    for mut t in store::library(app) {
+        if t.kind != "dmg" || is_running(app, &t.slug) {
+            continue;
+        }
+        let exe = PathBuf::from(&t.exe);
+        let Some(name) = exe.file_name().map(|n| n.to_os_string()) else { continue };
+        let target = root.join(&name);
+        if exe != target && exe.is_dir() && !target.exists() && std::fs::rename(&exe, &target).is_ok() {
+            t.exe = target.to_string_lossy().into();
+            t.dir = t.exe.clone();
+            store::upsert(app, t.clone()).ok();
+            app.emit("library-changed", ()).ok();
+        }
+        let installed = PathBuf::from(&t.exe);
+        let copies: Vec<PathBuf> = mac_copies(&installed, &name, t.identifier.as_deref(), None)
+            .into_iter()
+            .filter(|c| {
+                // Only ever ask for a password once per copy; after that just try quietly.
+                let key = format!("dupAsked:{}", c.to_string_lossy());
+                if store::setting(app, &key).is_some() {
+                    std::fs::remove_dir_all(c).ok();
+                    return false;
+                }
+                store::settings_set(app.clone(), key, "1".into()).ok();
+                true
+            })
+            .collect();
+        if !copies.is_empty() {
+            remove_copies(&t.name, copies);
+        }
+    }
+}
+
 /// Check every installed tool shortly after start, then every 30 minutes.
 pub fn start_auto_update(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(15)).await;
         loop {
+            #[cfg(target_os = "macos")]
+            {
+                let a = app.clone();
+                let _ = tokio::task::spawn_blocking(move || consolidate_mac(&a)).await;
+            }
             for t in store::library(&app) {
                 update_one(&app, &t.slug).await;
             }

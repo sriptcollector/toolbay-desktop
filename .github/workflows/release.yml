@@ -160,8 +160,9 @@ jobs:
           bin="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
           TOOLBAY_CI_GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" TOOLBAY_CI_INSTALL="cereal sriptcollector/cereal" TOOLBAY_CI_SKIP_FILES=1             TOOLBAY_CI_RESULT="$PWD/ci-result.txt" "$bin" || true
           echo "Result: $(cat ci-result.txt 2>/dev/null || echo 'no result')"
-          ls -la@ ~/Applications/Toolbay 2>/dev/null || true
-          for a in ~/Applications/Toolbay/*.app; do
+          ls -la@ /Applications/Toolbay ~/Applications/Toolbay 2>/dev/null || true
+          for a in /Applications/Toolbay/*.app ~/Applications/Toolbay/*.app; do
+            [ -d "$a" ] || continue
             xattr -p com.apple.quarantine "$a" 2>/dev/null && { echo "$a is quarantined"; exit 1; }
             echo "$a: not quarantined"; codesign -dv "$a" 2>&1 | grep -E "Signature|Authority|TeamIdentifier" || true
           done
