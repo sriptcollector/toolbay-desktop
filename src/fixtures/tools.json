@@ -4,20 +4,20 @@
       "slug": "toolbay-flow",
       "name": "Toolbay Flow",
       "tagline": "Wispr Flow, reverse engineered and free",
-      "description": "We reverse engineered Wispr Flow and made it free. Stop paying for dumb shit. Hold a key, speak, let go: clean, punctuated text appears wherever your cursor is. Speech recognition (whisper.cpp) and cleanup (llama.cpp, Qwen3) run on your computer. No account, no word limits, no telemetry.\n\nThe Windows version is the most tested. The Mac version is brand new, so tell us in the community if anything is off.",
-      "iconUrl": "/tools/toolbay-flow.png",
+      "description": "We reverse engineered Wispr Flow and made it free. Stop paying for dumb shit.\n\nHold a key, speak, let go: clean text appears wherever your cursor is. Picks the best local AI models for your computer automatically. No account, no limits, no telemetry.\n\nThe Windows version is the most tested. The Mac version is brand new, so tell us in the community if anything is off.",
+      "iconUrl": "https://toolbay.ai/tools/toolbay-flow.png",
       "screenshots": [],
       "category": "Writing",
       "repoUrl": "https://github.com/sriptcollector/toolbay-flow",
       "license": "MIT",
-      "version": "0.1.0",
+      "version": "0.4.14",
       "platforms": [
         "mac",
         "win"
       ],
       "downloads": {
-        "mac": "https://github.com/sriptcollector/toolbay-flow/releases/download/v0.1.0/Toolbay.Flow_0.1.0_aarch64.dmg",
-        "win": "https://github.com/sriptcollector/toolbay-flow/releases/download/v0.1.0/Toolbay.Flow_0.1.0_x64-setup.exe"
+        "mac": "https://github.com/sriptcollector/toolbay-flow/releases/latest/download/Toolbay.Flow_aarch64.pkg",
+        "win": "https://github.com/sriptcollector/toolbay-flow/releases/latest/download/Toolbay.Flow_x64-setup.exe"
       },
       "priceCents": 0,
       "openSource": true,
@@ -37,14 +37,121 @@
       "inspiredBy": {
         "name": "Wispr Flow",
         "company": "Wispr",
-        "logoUrl": null
+        "logoUrl": "https://toolbay.ai/inspired/wispr-flow.png"
       },
       "kind": "app",
       "install": {
         "type": "github",
         "repo": "sriptcollector/toolbay-flow"
       },
+      "forkedFrom": null,
+      "compatibility": null,
+      "credit": null,
       "url": "https://toolbay.ai/tools/toolbay-flow"
+    },
+    {
+      "slug": "cereal",
+      "name": "Cereal",
+      "tagline": "Granola, free. No bot joins your call.",
+      "description": "First Wispr Flow, then Obsidian. Now we're making Granola free. Stop paying for dumb shit.\n\nCereal notices your Zoom, Meet, Teams or Slack calls and takes notes with no bot joining: it records your side and the other side, transcribes on your computer, tells speakers apart, and turns your rough notes into clean notes with decisions and action items. Calendar, folders, search and chat across all your meetings. No account, no limits, no telemetry.\n\nCereal used to be called Toolbay Notes. The Windows version is ready. The Mac version is an early build, so tell us in the community if anything is off.",
+      "iconUrl": "https://toolbay.ai/tools/cereal.png",
+      "screenshots": [
+        "https://toolbay.ai/tools/cereal/meeting.png",
+        "https://toolbay.ai/tools/cereal/home.png",
+        "https://toolbay.ai/tools/cereal/folder.png",
+        "https://toolbay.ai/tools/cereal/chat.png",
+        "https://toolbay.ai/tools/cereal/settings.png"
+      ],
+      "category": "Meetings",
+      "repoUrl": "https://github.com/sriptcollector/cereal",
+      "license": "MIT",
+      "version": "0.4.2",
+      "platforms": [
+        "mac",
+        "win"
+      ],
+      "downloads": {
+        "mac": "https://github.com/sriptcollector/cereal/releases/latest/download/Cereal_aarch64.pkg",
+        "win": "https://github.com/sriptcollector/cereal/releases/latest/download/Cereal_x64-setup.exe"
+      },
+      "priceCents": 0,
+      "openSource": true,
+      "privacy": {
+        "status": "pending",
+        "checkedAt": null,
+        "summary": "Not independently reviewed yet. The developer says: recording, transcription and notes all run on your computer; no account, no servers, no analytics."
+      },
+      "rating": null,
+      "reviewCount": 0,
+      "author": {
+        "name": "Orion Jones",
+        "handle": "orion"
+      },
+      "status": "live",
+      "replaces": "Granola",
+      "inspiredBy": {
+        "name": "Granola",
+        "company": "Granola",
+        "logoUrl": "https://toolbay.ai/inspired/granola-on-light.svg"
+      },
+      "kind": "app",
+      "install": {
+        "type": "github",
+        "repo": "sriptcollector/cereal"
+      },
+      "forkedFrom": null,
+      "compatibility": null,
+      "credit": null,
+      "url": "https://toolbay.ai/tools/cereal"
+    },
+    {
+      "slug": "bedrock",
+      "name": "Bedrock notes app",
+      "tagline": "Obsidian was charging. So we made it free.",
+      "description": "Obsidian was charging, so we made it free too, sync included. Stop paying for dumb shit.\n\nOpen the Obsidian vault you already have and keep writing: linked notes, Markdown files on your own computer, and the folders you're used to. No account needed to use it.\n\nBedrock by Toolbay is an early version. Sync between your computers is built in and switches on soon; until then it works fully offline. Tell us in the community what you'd like next.",
+      "iconUrl": "https://toolbay.ai/tools/bedrock.png",
+      "screenshots": [],
+      "category": "Notes",
+      "repoUrl": "https://github.com/sriptcollector/bedrock",
+      "license": "MIT",
+      "version": "0.1.0",
+      "platforms": [
+        "mac",
+        "win"
+      ],
+      "downloads": {
+        "mac": "https://github.com/sriptcollector/bedrock/releases/latest/download/Bedrock_arm64.dmg",
+        "win": "https://github.com/sriptcollector/bedrock/releases/latest/download/Bedrock_x64-setup.exe"
+      },
+      "priceCents": 0,
+      "openSource": true,
+      "privacy": {
+        "status": "pending",
+        "checkedAt": null,
+        "summary": "Not independently reviewed yet. The developer says: your notes stay as files on your computer; sync (coming soon) is end-to-end encrypted; no analytics."
+      },
+      "rating": null,
+      "reviewCount": 0,
+      "author": {
+        "name": "Orion Jones",
+        "handle": "orion"
+      },
+      "status": "beta",
+      "replaces": "Obsidian",
+      "inspiredBy": {
+        "name": "Obsidian",
+        "company": "Obsidian or Dynalist Inc.",
+        "logoUrl": null
+      },
+      "kind": "app",
+      "install": {
+        "type": "github",
+        "repo": "sriptcollector/bedrock"
+      },
+      "forkedFrom": null,
+      "compatibility": null,
+      "credit": null,
+      "url": "https://toolbay.ai/tools/bedrock"
     }
   ]
 }

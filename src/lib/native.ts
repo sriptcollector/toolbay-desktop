@@ -28,7 +28,8 @@ export interface Progress {
 const demo = !isTauri && new URLSearchParams(location.search).has("demo");
 const demoWindow = new URLSearchParams(location.search).get("demo") === "hidden" ? "hidden" : "shown";
 const demoLibrary = [
-  { slug: "toolbay-flow", name: "Toolbay Flow", version: "0.4.5", repo: "sriptcollector/toolbay-flow" },
+  { slug: "toolbay-flow", name: "Toolbay Flow", version: "0.4.14", repo: "sriptcollector/toolbay-flow" },
+  { slug: "cereal", name: "Cereal", version: "0.4.2", repo: "sriptcollector/cereal" },
 ] as unknown as InstalledTool[];
 const demoRunning: RunInfo[] = [
   { slug: "toolbay-flow", name: "Toolbay Flow", pid: 1, startedAt: Date.now() / 1000 - 600, window: demoWindow },
