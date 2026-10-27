@@ -281,7 +281,7 @@ export function ToolDetail({ hub, slug }: { hub: Hub; slug: string }) {
             )}
           </div>
           <div className="small muted" style={{ marginTop: 8 }}>
-            Toolbay checks for updates every 30 minutes. They install by themselves when {tool.name} is closed, or right away with Update.
+            Toolbay checks for updates every 30 minutes and installs them by itself. If {tool.name} is open, it restarts on the new version.
           </div>
         </>
       )}
@@ -719,8 +719,10 @@ export function CommunityPage({ hub }: { hub: Hub }) {
 export function SettingsPage({ hub, setUser }: { hub: Hub; setUser: (u: User | null) => void }) {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [update, setUpdate] = useState("");
+  const [version, setVersion] = useState("");
   useEffect(() => {
     native.settings().then(setSettings);
+    import("@tauri-apps/api/app").then((a) => a.getVersion()).then(setVersion).catch(() => {});
   }, []);
   const set = async (key: string, value: string) => {
     await native.setSetting(key, value);
@@ -770,7 +772,7 @@ export function SettingsPage({ hub, setUser }: { hub: Hub; setUser: (u: User | n
       <div className="settings-row">
         <div className="grow">
           <div className="title">Update tools by themselves</div>
-          <div className="small muted">New versions install quietly when the tool isn't open.</div>
+          <div className="small muted">New versions install by themselves. An open tool restarts on the new version.</div>
         </div>
         <div className="seg">
           <button className={auto ? "on" : ""} onClick={() => set("autoUpdate", "true")}>
@@ -785,7 +787,7 @@ export function SettingsPage({ hub, setUser }: { hub: Hub; setUser: (u: User | n
       <div className="settings-row">
         <div className="grow">
           <div className="title">Toolbay</div>
-          <div className="small muted">{update || "Version 0.1.0"}</div>
+          <div className="small muted">{update || `Version ${version}. Updates install by themselves.`}</div>
         </div>
         <button className="btn" disabled={!isTauri} onClick={checkUpdate}>
           Check for updates

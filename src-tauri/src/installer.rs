@@ -732,9 +732,9 @@ fn pending_key(slug: &str) -> String {
     format!("pendingUpdate:{slug}")
 }
 
-/// Look for a newer version. A tool that's closed is updated right away; one that's open (Flow
-/// lives in the menu bar, so it's nearly always open) gets an "Update" button in the hub instead,
-/// and is updated by itself the next time it closes.
+/// Look for a newer version and, with auto-update on (the default), install it right away. A tool
+/// that's open (Flow lives in the menu bar, so it nearly always is) is closed, updated and opened
+/// again. With auto-update off, the hub shows an "Update" button instead.
 pub async fn update_one(app: &AppHandle, slug: &str) {
     let Some(t) = store::library(app).into_iter().find(|t| t.slug == slug) else { return };
     let source = source_for(app, &t);
@@ -744,17 +744,8 @@ pub async fn update_one(app: &AppHandle, slug: &str) {
         return;
     }
     let auto = store::setting(app, "autoUpdate").as_deref() != Some("false");
-    if auto && !is_running(app, slug) {
-        if !begin_update(slug) {
-            return;
-        }
-        let ok = install_tool(app.clone(), slug.to_string(), source).await.is_ok();
-        end_update(slug);
-        if ok {
-            store::settings_set(app.clone(), pending_key(slug), String::new()).ok();
-            app.emit("tool-updated", serde_json::json!({ "slug": slug, "name": t.name, "version": r.manifest.version }))
-                .ok();
-        }
+    if auto {
+        let _ = update_now(app, slug).await;
         return;
     }
     let was = store::setting(app, &pending_key(slug)).unwrap_or_default();
@@ -780,23 +771,27 @@ pub fn tool_pending_updates(app: AppHandle) -> std::collections::HashMap<String,
 /// "Update now": close the tool if it's open, install the new version, and open it again.
 #[tauri::command]
 pub async fn tool_update_now(app: AppHandle, slug: String) -> Result<InstalledTool, String> {
-    let t = find(&app, &slug)?;
-    if !begin_update(&slug) {
+    update_now(&app, &slug).await
+}
+
+async fn update_now(app: &AppHandle, slug: &str) -> Result<InstalledTool, String> {
+    let t = find(app, slug)?;
+    if !begin_update(slug) {
         return Err(format!("{} is already updating.", t.name));
     }
-    let was_running = is_running(&app, &slug);
+    let was_running = is_running(app, slug);
     if was_running {
-        crate::running::close(&app, &slug).await;
+        crate::running::close(app, slug).await;
     }
-    let source = source_for(&app, &t);
-    let result = install_tool(app.clone(), slug.clone(), source).await;
-    end_update(&slug);
+    let source = source_for(app, &t);
+    let result = install_tool(app.clone(), slug.to_string(), source).await;
+    end_update(slug);
     if let Ok(new) = &result {
-        store::settings_set(app.clone(), pending_key(&slug), String::new()).ok();
+        store::settings_set(app.clone(), pending_key(slug), String::new()).ok();
         app.emit("tool-updated", serde_json::json!({ "slug": slug, "name": new.name, "version": new.version })).ok();
     }
     if was_running {
-        tool_launch(app.clone(), slug).ok();
+        tool_launch(app.clone(), slug.to_string()).ok();
     }
     result
 }

@@ -66,18 +66,18 @@ const NAV: { page: Page; label: string }[] = [
 /** Tools whose slug changed on toolbay.ai, so old links and installs still find them. */
 const RENAMED: Record<string, string> = { "toolbay-notes": "cereal" };
 
-/** Keep Toolbay itself up to date without asking: download, install quietly, restart. */
+/** Keep Toolbay itself up to date without asking: download, install quietly, restart.
+ *  Open tools are separate apps, so they keep running while the hub restarts. */
 async function updateHubQuietly() {
   try {
     const { check } = await import("@tauri-apps/plugin-updater");
     const update = await check();
     if (!update) return;
-    if ((await native.running()).length > 0) return; // don't restart while a tool is open
     await update.downloadAndInstall();
     const { relaunch } = await import("@tauri-apps/plugin-process");
     await relaunch();
   } catch {
-    // Offline or no release yet: try again next launch.
+    // Offline or no release yet: the next check tries again.
   }
 }
 
@@ -138,20 +138,41 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Show the last catalog instantly; refresh it now and every 10 minutes.
-    const loadCatalog = () =>
+    // Show the last catalog instantly; refresh it now and every 10 minutes. A failed load (Wi-Fi
+    // still waking up, a blip) retries after 2, 5, 15 and 30 seconds before the banner shows,
+    // and again whenever the window comes back or the network returns.
+    let retry = 0;
+    let retryTimer = 0;
+    const loadCatalog = (): Promise<void> =>
       api.tools().then((t) => {
-        if (t.live) setTools(t.data);
-        if (t.live) localStorage.setItem("catalog", JSON.stringify(t.data));
-        setLive(t.live);
+        window.clearTimeout(retryTimer);
+        if (t.live) {
+          retry = 0;
+          setTools(t.data);
+          localStorage.setItem("catalog", JSON.stringify(t.data));
+          setLive(true);
+          api.posts().then((p) => p.live && setPosts(p.data));
+        } else if (retry < 4) {
+          retryTimer = window.setTimeout(loadCatalog, [2, 5, 15, 30][retry++] * 1000);
+        } else {
+          setLive(false);
+        }
         setLoaded(true);
       });
+    const retryNow = () => {
+      retry = 0;
+      loadCatalog();
+    };
     loadCatalog();
-    const catalogTimer = window.setInterval(loadCatalog, 10 * 60 * 1000);
+    const catalogTimer = window.setInterval(retryNow, 10 * 60 * 1000);
+    window.addEventListener("online", retryNow);
+    const retryIfDown = () => retry > 0 && retryNow();
+    window.addEventListener("focus", retryIfDown);
     api.posts().then((p) => setPosts(p.data));
     refreshLibrary();
     native.running().then(setRunning);
     if (isTauri) updateHubQuietly();
+    const hubUpdateTimer = isTauri ? window.setInterval(updateHubQuietly, 30 * 60 * 1000) : 0;
     native.me().then(setUser);
     const subs = [
       native.onProgress((p) =>
@@ -183,6 +204,10 @@ export default function App() {
     takeRoutes();
     return () => {
       window.clearInterval(catalogTimer);
+      window.clearInterval(hubUpdateTimer);
+      window.clearTimeout(retryTimer);
+      window.removeEventListener("online", retryNow);
+      window.removeEventListener("focus", retryIfDown);
       subs.forEach((p) => p.then((un) => un()));
     };
   }, [refreshLibrary, toast, takeRoutes]);
