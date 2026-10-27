@@ -1,7 +1,11 @@
-/* Toolbay dark theme (tokens shared with every tool; source: toolbay.ai globals.css).
+/* Toolbay theme tokens (shared with every tool; source: toolbay.ai globals.css).
    Compact launcher: square corners, 4/8px spacing, 1px hairlines instead of shadows, fast
-   80-110ms colour/opacity transitions. Same family as Toolbay Flow (src/hub/*.css). */
-:root {
+   80-110ms colour/opacity transitions. Same family as Toolbay Flow (src/hub/*.css).
+   Colours: dark is the default (also before JS runs); <html data-theme="light"> swaps the palette.
+   src/lib/theme.ts sets data-theme from Settings > Appearance (System / Light / Dark). */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
   --canvas: #0a0a0a;
   --canvas-deep: #050505;
   --card: #101010;
@@ -16,17 +20,74 @@
   --line-hover: #565656;
   --accent: #fafafa;
   --accent-on: #0a0a0a;
+  --accent-hover: #fff;
+  --accent-active: #d9d9d9;
+  --ghost-hover: rgba(255, 255, 255, 0.06);
   --chip: #161616;
   --premium: #8b6dff;
   --premium-bright: #a488ff;
   --premium-tint: rgba(139, 109, 255, 0.12);
   --premium-line: rgba(139, 109, 255, 0.42);
+  --premium-ring: rgba(139, 109, 255, 0.3);
+  --hero-glow: rgba(139, 109, 255, 0.14);
   --danger: #f85149;
+  --danger-bright: #ff8b84;
+  --danger-tint: rgba(248, 81, 73, 0.1);
   --success: #7ee2a8;
   --success-tint: rgba(126, 226, 168, 0.1);
   --warn: #e8c37a;
   --warn-tint: rgba(232, 195, 122, 0.1);
+  --star: #e8b84a;
+  --tile-art: #0d0d0d;
+  --badge-bg: rgb(20 20 20 / .9);
+  --toast-line: #fff;
+  --backdrop: rgb(5 5 5 / .88);
+}
 
+/* Light: near-white canvas, slightly off-white cards, hairline borders, near-black text.
+   Primary buttons invert to near-black (as white is in dark). The violet accent keeps its hue;
+   as text it is darkened to #6b4fe0 (5.5:1 on white) since #8b6dff is only 3.7:1. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --canvas: #fcfcfc;
+  --canvas-deep: #f4f4f5;
+  --card: #f7f7f8;
+  --card-hover: #efeff1;
+  --line: #e3e3e6;
+  --line-strong: #d4d4d8;
+  --text-bright: #0a0a0a;
+  --text: #18181b;
+  --body: #3f3f46;
+  --muted: #6b6b73;
+  --faint: #6b6b73;
+  --line-hover: #a1a1aa;
+  --accent: #0a0a0a;
+  --accent-on: #fafafa;
+  --accent-hover: #27272a;
+  --accent-active: #3f3f46;
+  --ghost-hover: rgba(0, 0, 0, 0.05);
+  --chip: #ededef;
+  --premium: #8b6dff;
+  --premium-bright: #6b4fe0;
+  --premium-tint: rgba(139, 109, 255, 0.12);
+  --premium-line: rgba(139, 109, 255, 0.5);
+  --premium-ring: rgba(139, 109, 255, 0.3);
+  --hero-glow: rgba(139, 109, 255, 0.1);
+  --danger: #cf222e;
+  --danger-bright: #b42318;
+  --danger-tint: rgba(207, 34, 46, 0.08);
+  --success: #1a7f37;
+  --success-tint: rgba(26, 127, 55, 0.1);
+  --warn: #9a6700;
+  --warn-tint: rgba(191, 135, 0, 0.12);
+  --star: #c48a12;
+  --tile-art: #f0f0f2;
+  --badge-bg: rgb(255 255 255 / .92);
+  --toast-line: #0a0a0a;
+  --backdrop: rgb(10 10 10 / .4);
+}
+
+:root {
   /* Shape: square everywhere. Only avatars and status dots stay round. */
   --r: 0;
   --r-sm: 0;
@@ -57,7 +118,6 @@
   line-height: 20px;
   color: var(--body);
   background: var(--canvas);
-  color-scheme: dark;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -113,11 +173,11 @@ h2 { font-size: 15px; line-height: 20px; font-weight: 700; letter-spacing: -0.01
 .btn:active { background: var(--line); }
 .btn:focus:not(:focus-visible) { outline: none; }
 .btn.primary { background: var(--accent); color: var(--accent-on); border-color: var(--accent); }
-.btn.primary:hover { background: #fff; border-color: #fff; }
-.btn.primary:active { background: #d9d9d9; }
+.btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn.primary:active { background: var(--accent-active); }
 .btn.big { min-height: var(--h-lg); padding: 0 var(--s4); font-size: 14px; font-weight: 700; border-radius: var(--r); min-width: 140px; }
 .btn.ghost { border-color: transparent; color: var(--text); }
-.btn.ghost:hover { background: rgba(255, 255, 255, 0.06); border-color: transparent; }
+.btn.ghost:hover { background: var(--ghost-hover); border-color: transparent; }
 .btn.danger { color: var(--danger); }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn.small { min-height: var(--h-sm); padding: 0 10px; font-size: 12px; white-space: nowrap; }
@@ -127,7 +187,7 @@ h2 { font-size: 15px; line-height: 20px; font-weight: 700; letter-spacing: -0.01
 /* Hero (featured tool / tool page header) */
 .hero {
   position: relative; overflow: hidden; border-radius: var(--r); border: 1px solid var(--line);
-  background: radial-gradient(120% 140% at 0% 0%, rgba(139, 109, 255, 0.14), transparent 55%), var(--card);
+  background: radial-gradient(120% 140% at 0% 0%, var(--hero-glow), transparent 55%), var(--card);
   padding: var(--s4); display: flex; gap: var(--s4); align-items: center;
 }
 .hero-icon { width: 72px; height: 72px; border-radius: var(--r); flex-shrink: 0; overflow: hidden; background: var(--chip); display: grid; place-items: center; font-size: 28px; font-weight: 700; color: var(--text-bright); border: 1px solid var(--line); }
@@ -146,7 +206,7 @@ h2 { font-size: 15px; line-height: 20px; font-weight: 700; letter-spacing: -0.01
 .chip.ok { background: var(--premium-tint); border-color: transparent; color: var(--premium-bright); }
 .chip.success { background: var(--success-tint); border-color: transparent; color: var(--success); }
 .chip.warn { background: var(--warn-tint); border-color: transparent; color: var(--warn); }
-.chip.bad { background: rgba(248, 81, 73, 0.1); border-color: transparent; color: #ff8b84; }
+.chip.bad { background: var(--danger-tint); border-color: transparent; color: var(--danger-bright); }
 .dot { width: 6px; height: 6px; border-radius: var(--round); background: currentColor; flex-shrink: 0; }
 .running { color: var(--premium-bright); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
 .running .dot { box-shadow: 0 0 0 3px var(--premium-tint); }
@@ -165,7 +225,7 @@ h2 { font-size: 15px; line-height: 20px; font-weight: 700; letter-spacing: -0.01
   transition: border-color var(--t-fast), background-color var(--t-fast);
 }
 .tile:hover { border-color: var(--line-hover); background: var(--card-hover); }
-.tile-art { position: relative; aspect-ratio: 16 / 9; display: grid; place-items: center; background: #0d0d0d; border-bottom: 1px solid var(--line); }
+.tile-art { position: relative; aspect-ratio: 16 / 9; display: grid; place-items: center; background: var(--tile-art); border-bottom: 1px solid var(--line); }
 .tile-art .icon { width: 48px; height: 48px; border-radius: var(--r); }
 .tile-body { padding: var(--s2) 10px 10px; display: flex; flex-direction: column; gap: 2px; }
 .tile-name { font-size: 13px; line-height: 18px; font-weight: 700; color: var(--text-bright); }
@@ -174,7 +234,7 @@ h2 { font-size: 15px; line-height: 20px; font-weight: 700; letter-spacing: -0.01
 .tile.placeholder:hover { border-color: var(--line); background: transparent; }
 .tile.placeholder .tile-art { background: transparent; color: var(--faint); font-size: 12px; }
 .tile-badge { position: absolute; top: 6px; right: 6px; }
-.tile-badge.status.ok { color: var(--body); background: rgb(20 20 20 / .9); border: 1px solid var(--line); }
+.tile-badge.status.ok { color: var(--body); background: var(--badge-bg); border: 1px solid var(--line); }
 
 .icon { width: 32px; height: 32px; border-radius: var(--r); flex-shrink: 0; overflow: hidden; background: var(--chip); display: grid; place-items: center; font-weight: 700; color: var(--text-bright); }
 .icon img { width: 100%; height: 100%; object-fit: cover; }
@@ -197,14 +257,14 @@ h2 { font-size: 15px; line-height: 20px; font-weight: 700; letter-spacing: -0.01
 .notice .grow { flex: 1; }
 .disclaimer { margin-top: var(--s5); font-size: 11px; color: var(--faint); }
 
-.stars { color: #e8b84a; letter-spacing: 1px; }
+.stars { color: var(--star); letter-spacing: 1px; }
 .review, .post { padding: 10px 0; border-top: 1px solid var(--line); }
 .meta { font-size: 12px; line-height: 16px; color: var(--muted); display: flex; gap: 6px; align-items: center; margin-bottom: var(--s1); }
 .composer { border: 1px solid var(--line-strong); border-radius: var(--r); padding: var(--s2); display: flex; flex-direction: column; gap: 6px; background: var(--card); transition: border-color var(--t-fast); }
 .composer:focus-within { border-color: var(--premium-line); }
 .composer textarea { border: 0; outline: none; resize: vertical; min-height: 48px; background: none; color: var(--text); }
 .star-pick button { background: none; border: 0; cursor: pointer; font-size: 18px; line-height: 20px; color: var(--line-strong); padding: 0 1px; }
-.star-pick button.on { color: #e8b84a; }
+.star-pick button.on { color: var(--star); }
 
 .empty { padding: 32px 0; text-align: center; color: var(--muted); font-size: 13px; }
 .settings-row { display: flex; align-items: center; gap: var(--s3); padding: 10px 0; border-top: 1px solid var(--line); }
@@ -217,7 +277,7 @@ textarea.input { resize: vertical; font: inherit; font-size: 13px; }
 .seg button + button { border-left: 1px solid var(--line-strong); }
 .seg button:hover { color: var(--text); }
 .seg button.on { background: var(--chip); color: var(--text-bright); }
-.toast { position: fixed; bottom: var(--s4); left: 50%; transform: translateX(-50%); background: var(--text-bright); color: var(--accent-on); padding: 7px 12px; border-radius: var(--r); font-size: 13px; font-weight: 500; border: 1px solid #fff; max-width: 560px; text-align: center; }
+.toast { position: fixed; bottom: var(--s4); left: 50%; transform: translateX(-50%); background: var(--text-bright); color: var(--accent-on); padding: 7px 12px; border-radius: var(--r); font-size: 13px; font-weight: 500; border: 1px solid var(--toast-line); max-width: 560px; text-align: center; }
 .back { margin-bottom: var(--s3); display: inline-block; }
 
 /* Upload project (projects.tsx) */
@@ -283,7 +343,7 @@ img.avatar { object-fit: cover; }
 .drop-zone:hover, .drop-zone.over { border-color: var(--premium); background: var(--premium-tint); color: var(--text); }
 
 /* One-step "Install <tool>?" */
-.prompt-backdrop { position: fixed; inset: 0; z-index: 50; background: rgb(5 5 5 / .88); display: grid; place-items: center; animation: fade var(--t-med) ease-out; }
+.prompt-backdrop { position: fixed; inset: 0; z-index: 50; background: var(--backdrop); display: grid; place-items: center; animation: fade var(--t-med) ease-out; }
 .prompt { width: min(400px, calc(100vw - 32px)); background: var(--card); border: 1px solid var(--line-strong); border-radius: var(--r); padding: 20px 18px 14px; display: grid; justify-items: center; gap: 6px; text-align: center; }
 .prompt h1 { margin: var(--s1) 0 0; font-size: 18px; line-height: 24px; }
 .prompt .lede { margin: 0 0 var(--s1); }
@@ -304,7 +364,7 @@ img.avatar { object-fit: cover; }
 .status.live { color: var(--premium-bright); background: var(--premium-tint); }
 .status.bg { color: var(--muted); background: var(--chip); }
 .status .dot { width: 6px; height: 6px; }
-.status.live .dot { box-shadow: 0 0 0 2px rgba(139, 109, 255, .3); }
+.status.live .dot { box-shadow: 0 0 0 2px var(--premium-ring); }
 .install-progress { width: 200px; }
 .controls-hero .install-progress { width: 100%; }
 .install-progress-label { display: flex; justify-content: space-between; gap: var(--s2); font-size: 12px; line-height: 16px; color: var(--body); margin-bottom: 6px; white-space: nowrap; }

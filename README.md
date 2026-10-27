@@ -1,8 +1,9 @@
 # Toolbay
 
-One free launcher for free, open-source apps, for Mac and Windows. Install a tool with one click,
-open it from Toolbay or a desktop shortcut, and it keeps itself up to date. First tool: Toolbay Flow
-(voice dictation, inspired by Wispr Flow).
+First we reverse engineered Wispr Flow and made it free. Then we saw Obsidian was charging, so we made that free too. Now we're making Granola free. Stop paying for dumb shit.
+
+Toolbay is the free launcher for those apps, on Mac and Windows: Toolbay Flow (Wispr Flow, free),
+Bedrock (Obsidian, free) and Cereal (Granola, free). Install with one click; every app keeps itself up to date.
 
 Built with Tauri 2 (Rust) and React + TypeScript. Rules for contributors: [AGENTS.md](AGENTS.md).
 

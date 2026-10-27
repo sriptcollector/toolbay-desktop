@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Hub } from "./App";
 import { api, isTauri } from "./lib/api";
 import { native } from "./lib/native";
+import { setAppearance, useAppearance, type Appearance } from "./lib/theme";
 import type { ForkSummary, Review, Tool, User } from "./lib/types";
 import { ForkedFrom, Icon, Inspired, PrivacyChip, ProfileLink, Stars, timeAgo } from "./components";
 import { DropCard, DropEmailsSetting, ToolSpace } from "./spaces";
@@ -77,7 +78,7 @@ export function HomePage({ hub }: { hub: Hub }) {
   return (
     <>
       <h1>{first ? `Welcome back, ${first}.` : "Welcome to Toolbay."}</h1>
-      <p className="lede">Free, open-source apps. One click to install, and they keep themselves up to date.</p>
+      <p className="lede">First we reverse engineered Wispr Flow and made it free. Then we saw Obsidian was charging, so we made that free too. Now we're making Granola free. Stop paying for dumb shit.</p>
       {hub.running.length > 0 && (
         <>
           <h2 style={{ marginTop: 0 }}>Running now</h2>
@@ -150,7 +151,7 @@ export function ToolsPage({ hub }: { hub: Hub }) {
   return (
     <>
       <h1>Tools</h1>
-      <p className="lede">Free, open-source apps. Every one shows its source code and a privacy check.</p>
+      <p className="lede">Stop paying for dumb shit. Every app here is free, shows its source code and has a privacy check.</p>
       <ToolGrid hub={hub} />
     </>
   );
@@ -716,6 +717,12 @@ export function CommunityPage({ hub }: { hub: Hub }) {
 
 // ---------------- Settings ----------------
 
+const APPEARANCES: [Appearance, string][] = [
+  ["system", "System"],
+  ["light", "Light"],
+  ["dark", "Dark"],
+];
+
 export function SettingsPage({ hub, setUser }: { hub: Hub; setUser: (u: User | null) => void }) {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [update, setUpdate] = useState("");
@@ -743,6 +750,7 @@ export function SettingsPage({ hub, setUser }: { hub: Hub; setUser: (u: User | n
     }
   };
   const auto = settings.autoUpdate !== "false";
+  const appearance = useAppearance();
   return (
     <>
       <h1>Settings</h1>
@@ -781,6 +789,19 @@ export function SettingsPage({ hub, setUser }: { hub: Hub; setUser: (u: User | n
           <button className={!auto ? "on" : ""} onClick={() => set("autoUpdate", "false")}>
             Off
           </button>
+        </div>
+      </div>
+      <div className="settings-row">
+        <div className="grow">
+          <div className="title">Appearance</div>
+          <div className="small muted">System follows your computer's light or dark setting.</div>
+        </div>
+        <div className="seg">
+          {APPEARANCES.map(([value, label]) => (
+            <button key={value} className={appearance === value ? "on" : ""} onClick={() => setAppearance(value)}>
+              {label}
+            </button>
+          ))}
         </div>
       </div>
       <DropEmailsSetting hub={hub} />

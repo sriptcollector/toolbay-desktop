@@ -182,9 +182,14 @@ async fn get_text(url: &str) -> Result<(u16, String), String> {
         let path = if cfg!(windows) { path.to_string() } else { format!("/{path}") };
         return std::fs::read_to_string(&path).map(|s| (200, s)).map_err(|_| NOT_AVAILABLE.to_string());
     }
-    let res = api::client()
-        .get(url)
-        .header("Accept", "application/vnd.github+json, application/json")
+    let mut req = api::client().get(url).header("Accept", "application/vnd.github+json, application/json");
+    // CI only: the shared runners hit GitHub's anonymous rate limit; a token lifts it.
+    if url.starts_with("https://api.github.com/") {
+        if let Ok(t) = std::env::var("TOOLBAY_CI_GITHUB_TOKEN") {
+            req = req.bearer_auth(t);
+        }
+    }
+    let res = req
         .send()
         .await
         .map_err(|_| NO_INTERNET.to_string())?;

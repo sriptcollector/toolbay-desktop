@@ -1,3 +1,4 @@
+mod appicon;
 mod api;
 mod auth;
 mod firstrun;
@@ -155,6 +156,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            appicon::set_app_icon,
             api::api_request,
             api::package_upload,
             firstrun::route_take,

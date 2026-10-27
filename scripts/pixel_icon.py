@@ -1,7 +1,9 @@
 """Turn a flat app icon into Bedrock-style pixel art: a 32x32 grid, dark outline,
 light from the top left, shade to the bottom right and a little texture.
 
-    python scripts/pixel_icon.py <source.png> <out.png> [grid]
+    python scripts/pixel_icon.py <source.png> <out.png> [grid] [light]
+
+"light" makes the light-mode version: a pale tile; the symbol keeps its colors and dark outline.
 
 The source keeps its layout (tile shape, symbol, colors); only the rendering changes.
 Then run `npx tauri icon <out.png>` to make every size.
@@ -13,6 +15,7 @@ from PIL import Image
 
 src, out = sys.argv[1], sys.argv[2]
 N = int(sys.argv[3]) if len(sys.argv) > 3 else 32
+LIGHT = len(sys.argv) > 4 and sys.argv[4] == "light"
 SCALE = 1024 // N
 
 im = Image.open(src).convert("RGBA")
@@ -69,6 +72,9 @@ sym_center = (sum(p[0] for p in sym) / len(sym), sum(p[1] for p in sym) / len(sy
 
 rng = random.Random(7)
 OUTLINE = (12, 11, 16)
+if LIGHT:
+    tile = (222, 220, 228)
+    OUTLINE = (40, 38, 50)
 outp = Image.new("RGBA", (N, N), (0, 0, 0, 0))
 o = outp.load()
 for y in range(N):

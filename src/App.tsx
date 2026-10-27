@@ -4,6 +4,8 @@ import { native, sourceOf, type Progress, type RunInfo } from "./lib/native";
 import type { InstalledTool, Post, Tool, User } from "./lib/types";
 import { NavIcon } from "./components";
 import logo from "./assets/logo.png";
+import logoLight from "./assets/logo-light.png";
+import { loadAppearance, useResolvedTheme } from "./lib/theme";
 import { CommunityPage, HomePage, LibraryPage, RunningPage, SettingsPage, ToolDetail, ToolsPage } from "./screens";
 import { ProjectsPage, readyTools } from "./projects";
 import { ProfilePage } from "./profile";
@@ -83,6 +85,8 @@ async function updateHubQuietly() {
 
 export default function App() {
   const [route, setRoute] = useState<Route>({ page: "home" });
+  const theme = useResolvedTheme();
+  useEffect(loadAppearance, []);
   // First paint: last run's catalog, or the one bundled with the app; the live one replaces it.
   const [tools, setTools] = useState<Tool[]>(() => {
     try {
@@ -314,7 +318,7 @@ export default function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="logo">
-          <img src={logo} alt="" />
+          <img src={theme === "light" ? logoLight : logo} alt="" />
           toolbay
         </div>
         {NAV.map((n) => (

@@ -3,8 +3,8 @@
     {
       "slug": "toolbay-flow",
       "name": "Toolbay Flow",
-      "tagline": "Free, local voice dictation in any app",
-      "description": "Hold a key, speak, let go: clean, punctuated text appears wherever your cursor is. Speech recognition (whisper.cpp) and cleanup (llama.cpp, Qwen3) run on your computer. No account, no word limits, no telemetry.\n\nThe Windows version is the most tested. The Mac version is brand new, so tell us in the community if anything is off.",
+      "tagline": "Wispr Flow, reverse engineered and free",
+      "description": "We reverse engineered Wispr Flow and made it free. Stop paying for dumb shit. Hold a key, speak, let go: clean, punctuated text appears wherever your cursor is. Speech recognition (whisper.cpp) and cleanup (llama.cpp, Qwen3) run on your computer. No account, no word limits, no telemetry.\n\nThe Windows version is the most tested. The Mac version is brand new, so tell us in the community if anything is off.",
       "iconUrl": "/tools/toolbay-flow.png",
       "screenshots": [],
       "category": "Writing",
