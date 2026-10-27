@@ -2,6 +2,20 @@ import { useState } from "react";
 import type { Privacy, Tool } from "./lib/types";
 import type { Hub } from "./App";
 
+// Each app as a free-standing pixel object (Bedrock's style), shown in tiles and heroes.
+const OBJECTS: Record<string, string> = Object.fromEntries(
+  Object.entries(import.meta.glob("./assets/objects/*.png", { eager: true, import: "default" }) as Record<string, string>).map(
+    ([path, url]) => [path.split("/").pop()!.replace(".png", ""), url],
+  ),
+);
+
+/** The tool's pixel object, or its icon when it has none yet. */
+export function ToolObject({ tool, className = "object", style }: { tool: Pick<Tool, "slug" | "name" | "iconUrl">; className?: string; style?: React.CSSProperties }) {
+  const src = OBJECTS[tool.slug];
+  if (!src) return <Icon tool={tool} className={`${className} object-fallback`} />;
+  return <img className={className} src={src} alt="" draggable={false} style={style} />;
+}
+
 export function Icon({ tool, className = "icon" }: { tool: Pick<Tool, "name" | "iconUrl">; className?: string }) {
   const [failed, setFailed] = useState(false);
   return (

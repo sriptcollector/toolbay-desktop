@@ -39,6 +39,8 @@
   --warn-tint: rgba(232, 195, 122, 0.1);
   --star: #e8b84a;
   --tile-art: #0d0d0d;
+  --object-shadow: rgb(0 0 0 / .55);
+  --object-floor: rgb(0 0 0 / .6);
   --badge-bg: rgb(20 20 20 / .9);
   --toast-line: #fff;
   --backdrop: rgb(5 5 5 / .88);
@@ -82,6 +84,8 @@
   --warn-tint: rgba(191, 135, 0, 0.12);
   --star: #c48a12;
   --tile-art: #f0f0f2;
+  --object-shadow: rgb(40 30 80 / .18);
+  --object-floor: rgb(40 30 80 / .14);
   --badge-bg: rgb(255 255 255 / .92);
   --toast-line: #0a0a0a;
   --backdrop: rgb(10 10 10 / .4);
@@ -190,6 +194,9 @@ h2 { font-size: 15px; line-height: 20px; font-weight: 700; letter-spacing: -0.01
   background: radial-gradient(120% 140% at 0% 0%, var(--hero-glow), transparent 55%), var(--card);
   padding: var(--s4); display: flex; gap: var(--s4); align-items: center;
 }
+.hero-stage { position: relative; width: 96px; height: 72px; flex-shrink: 0; }
+.hero-object { position: absolute; left: 50%; bottom: -6px; height: 128px; transform: translateX(-50%); filter: drop-shadow(0 10px 0 var(--object-shadow)); animation: hero-pop 640ms cubic-bezier(.2, 1.5, .35, 1) backwards; }
+@keyframes hero-pop { 0% { opacity: 0; transform: translate(-50%, 40px) scale(.5); } 100% { opacity: 1; transform: translate(-50%, 0) scale(1); } }
 .hero-icon { width: 72px; height: 72px; border-radius: var(--r); flex-shrink: 0; overflow: hidden; background: var(--chip); display: grid; place-items: center; font-size: 28px; font-weight: 700; color: var(--text-bright); border: 1px solid var(--line); }
 .hero-icon img { width: 100%; height: 100%; object-fit: cover; }
 .hero-body { flex: 1; min-width: 0; }
@@ -227,6 +234,31 @@ h2 { font-size: 15px; line-height: 20px; font-weight: 700; letter-spacing: -0.01
 .tile:hover { border-color: var(--line-hover); background: var(--card-hover); }
 .tile-art { position: relative; aspect-ratio: 16 / 9; display: grid; place-items: center; background: var(--tile-art); border-bottom: 1px solid var(--line); }
 .tile-art .icon { width: 48px; height: 48px; border-radius: var(--r); }
+
+/* Pixel objects pop out of their boxes: they rise past the tile's top edge when the grid
+   appears, then lift again on hover. The one place motion is slower and showier on purpose. */
+.grid { row-gap: var(--s5); padding-top: var(--s3); }
+.tile, .tile-art { overflow: visible; }
+.object { display: block; image-rendering: pixelated; user-select: none; pointer-events: none; }
+.object-fallback { background: transparent; }
+.tile-object {
+  position: absolute; left: 50%; bottom: 10px; width: auto; height: 112%; margin-left: 0;
+  transform: translate(-50%, -6px); transform-origin: 50% 100%;
+  filter: drop-shadow(0 8px 0 var(--object-shadow));
+  animation: object-pop 560ms cubic-bezier(.2, 1.5, .35, 1) backwards;
+  transition: transform 180ms cubic-bezier(.2, 1.6, .4, 1), filter 180ms ease;
+}
+.tile-art::after {
+  content: ""; position: absolute; left: 50%; bottom: 8px; width: 46%; height: 8px; transform: translateX(-50%);
+  background: var(--object-floor); border-radius: 50%; filter: blur(3px);
+}
+.tile:hover .tile-object { transform: translate(-50%, -16px) scale(1.06); filter: drop-shadow(0 16px 0 var(--object-shadow)); }
+@keyframes object-pop {
+  0% { opacity: 0; transform: translate(-50%, 34px) scale(.55); }
+  60% { opacity: 1; transform: translate(-50%, -14px) scale(1.05); }
+  100% { opacity: 1; transform: translate(-50%, -6px) scale(1); }
+}
+.tile-art .tile-badge { z-index: 1; }
 .tile-body { padding: var(--s2) 10px 10px; display: flex; flex-direction: column; gap: 2px; }
 .tile-name { font-size: 13px; line-height: 18px; font-weight: 700; color: var(--text-bright); }
 .tile-sub { font-size: 12px; line-height: 16px; color: var(--muted); }
@@ -238,6 +270,7 @@ h2 { font-size: 15px; line-height: 20px; font-weight: 700; letter-spacing: -0.01
 
 .icon { width: 32px; height: 32px; border-radius: var(--r); flex-shrink: 0; overflow: hidden; background: var(--chip); display: grid; place-items: center; font-weight: 700; color: var(--text-bright); }
 .icon img { width: 100%; height: 100%; object-fit: cover; }
+.icon:has(img), .hero-icon:has(img) { background: transparent; }
 
 /* Lists and panels */
 .panel { border: 1px solid var(--line); border-radius: var(--r); background: var(--card); }

@@ -5,7 +5,7 @@ import { api, isTauri } from "./lib/api";
 import { native } from "./lib/native";
 import { setAppearance, useAppearance, type Appearance } from "./lib/theme";
 import type { ForkSummary, Review, Tool, User } from "./lib/types";
-import { ForkedFrom, Icon, Inspired, PrivacyChip, ProfileLink, Stars, timeAgo } from "./components";
+import { ForkedFrom, Icon, Inspired, ToolObject, PrivacyChip, ProfileLink, Stars, timeAgo } from "./components";
 import { DropCard, DropEmailsSetting, ToolSpace } from "./spaces";
 import { shareTool } from "./invite";
 import { RunStatus, ToolControls } from "./controls";
@@ -42,7 +42,9 @@ function ShortcutOffer({ hub, tool }: { hub: Hub; tool: Tool }) {
 function Hero({ hub, tool, onTitle }: { hub: Hub; tool: Tool; onTitle?: () => void }) {
   return (
     <div className="hero">
-      <Icon tool={tool} className="hero-icon" />
+      <div className="hero-stage">
+        <ToolObject tool={tool} className="object hero-object" />
+      </div>
       <div className="hero-body">
         <h1 className="hero-title" onClick={onTitle} style={onTitle ? { cursor: "pointer" } : undefined}>
           {tool.name}
@@ -103,12 +105,12 @@ function ToolGrid({ hub, tools }: { hub: Hub; tools?: Tool[] }) {
   const list = tools ?? hub.tools;
   return (
     <div className="grid">
-      {list.map((t) => {
+      {list.map((t, i) => {
         const installed = hub.library.some((l) => l.slug === t.slug);
         return (
           <button key={t.slug} className="tile" onClick={() => hub.go({ page: "tools", slug: t.slug })}>
             <div className="tile-art">
-              <Icon tool={t} />
+              <ToolObject tool={t} className="object tile-object" style={{ animationDelay: `${i * 70}ms` }} />
               {hub.isRunning(t.slug) ? (
                 <span className="tile-badge status live">
                   <span className="dot" />
