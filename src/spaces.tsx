@@ -150,7 +150,7 @@ export function ToolSpace({ hub, tool }: { hub: Hub; tool: Tool }) {
               {p.visibility === "maker" && <span className="chip">Only the maker sees this</span>}
               <span>· {timeAgo(p.createdAt)}</span>
             </div>
-            <div className="prose" style={{ fontSize: 15, lineHeight: "22px" }}>
+            <div className="prose" style={{ fontSize: 14, lineHeight: "21px" }}>
               {p.body}
             </div>
           </div>
@@ -239,10 +239,10 @@ export function DropCard() {
       <h2>This week's drop</h2>
       <div className="panel drop-card">
         <div className="small muted mono">Week of {new Date(drop.weekOf).toLocaleDateString()}</div>
-        <div className="title" style={{ fontSize: 18, marginTop: 4 }}>
+        <div className="title" style={{ fontSize: 15, marginTop: 4 }}>
           {drop.title}
         </div>
-        <div className="prose" style={{ fontSize: 15, marginTop: 6 }}>
+        <div className="prose" style={{ fontSize: 14, marginTop: 4 }}>
           {drop.intro}
         </div>
         {expanded && <Markdown text={drop.body} />}

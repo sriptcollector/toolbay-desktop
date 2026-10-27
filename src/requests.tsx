@@ -266,7 +266,7 @@ function RequestDetail({ hub, id }: { hub: Hub; id: string }) {
           <div className="prose">{r.mustHaves}</div>
         </>
       )}
-      <div className="row" style={{ marginTop: 18 }}>
+      <div className="row" style={{ marginTop: 12 }}>
         {r.appUrl && (
           <button className="btn" onClick={() => open(r.appUrl!)}>
             Visit {r.appName}
@@ -292,7 +292,7 @@ function RequestDetail({ hub, id }: { hub: Hub; id: string }) {
             </ProfileLink>
             <span>· {c.id.startsWith("tmp-") ? "posting…" : timeAgo(c.createdAt)}</span>
           </div>
-          <div className="prose" style={{ fontSize: 15, lineHeight: "22px" }}>
+          <div className="prose" style={{ fontSize: 14, lineHeight: "21px" }}>
             {c.body}
           </div>
         </div>

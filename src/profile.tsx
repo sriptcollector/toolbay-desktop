@@ -56,7 +56,7 @@ export function ProfilePage({ hub, handle }: { hub: Hub; handle: string }) {
             @{p.handle}
             {p.location ? ` · ${p.location}` : ""} · joined {new Date(p.joinedAt).toLocaleDateString()}
           </div>
-          {p.bio && <div className="prose" style={{ marginTop: 10, fontSize: 15 }}>{p.bio}</div>}
+          {p.bio && <div className="prose" style={{ marginTop: 8, fontSize: 14 }}>{p.bio}</div>}
           <div className="row" style={{ marginTop: 12, gap: 8 }}>
             {links.map((l) => (
               <button key={l.label} className="btn small" onClick={() => open(l.url)}>
@@ -106,7 +106,7 @@ export function ProfilePage({ hub, handle }: { hub: Hub; handle: string }) {
           {p.posts.map((post) => (
             <div className="post" key={post.id}>
               <div className="meta">{timeAgo(post.createdAt)}{post.commentCount ? ` · ${post.commentCount} comments` : ""}</div>
-              <div className="prose" style={{ fontSize: 15, lineHeight: "22px" }}>
+              <div className="prose" style={{ fontSize: 14, lineHeight: "21px" }}>
                 {post.body}
               </div>
             </div>

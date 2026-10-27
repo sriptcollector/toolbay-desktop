@@ -190,9 +190,9 @@ export function ToolDetail({ hub, slug }: { hub: Hub; slug: string }) {
       <Hero hub={hub} tool={tool} />
       <ShortcutOffer hub={hub} tool={tool} />
       {tool.screenshots.length > 0 && (
-        <div className="row" style={{ marginTop: 20, overflowX: "auto", flexWrap: "nowrap" }}>
+        <div className="row" style={{ marginTop: 16, overflowX: "auto", flexWrap: "nowrap" }}>
           {tool.screenshots.map((s) => (
-            <img key={s} src={s} alt="" style={{ height: 220, borderRadius: 12, border: "1px solid var(--line)" }} />
+            <img key={s} src={s} alt="" style={{ height: 180, border: "1px solid var(--line)" }} />
           ))}
         </div>
       )}
@@ -674,7 +674,7 @@ export function CommunityPage({ hub }: { hub: Hub }) {
                   </button>
                 )}
               </div>
-              <div className="prose" style={{ fontSize: 15, lineHeight: "22px" }}>
+              <div className="prose" style={{ fontSize: 14, lineHeight: "21px" }}>
                 {p.body}
               </div>
             </div>
@@ -692,7 +692,7 @@ export function CommunityPage({ hub }: { hub: Hub }) {
               </ProfileLink>
               <span>· {timeAgo(p.createdAt)}</span>
             </div>
-            <div className="prose" style={{ fontSize: 15, lineHeight: "22px" }}>
+            <div className="prose" style={{ fontSize: 14, lineHeight: "21px" }}>
               {p.body}
             </div>
             {!!p.reactions?.length && (

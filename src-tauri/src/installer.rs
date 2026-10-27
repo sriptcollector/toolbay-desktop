@@ -197,7 +197,11 @@ async fn install(app: &AppHandle, slug: &str, source: &str) -> Result<InstalledT
             std::fs::copy(&package, &target).map_err(|_| NO_SPACE.to_string())?;
             (target, None)
         }
-        "dmg" => (install_dmg(&package, &tools_root(app), r.entry.app.as_deref()).await?, None),
+        "dmg" => {
+            let previous_exe = store::library(app).into_iter().find(|t| t.slug == slug).map(|t| PathBuf::from(t.exe));
+            let id = r.manifest.identifier.as_deref();
+            (install_dmg(&package, &tools_root(app), r.entry.app.as_deref(), id, previous_exe).await?, None)
+        }
         _ => return Err("This tool needs a newer version of Toolbay. Update Toolbay from Settings, then try again.".into()),
     };
     std::fs::remove_dir_all(&staging).ok();
@@ -459,8 +463,59 @@ pub(crate) fn unzip(file: &Path, dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// The bundle identifier of an installed .app, read from its Info.plist.
 #[cfg(target_os = "macos")]
-async fn install_dmg(file: &Path, root: &Path, app_name: Option<&str>) -> Result<PathBuf, String> {
+fn bundle_id(app: &Path) -> Option<String> {
+    let out = std::process::Command::new("/usr/bin/defaults")
+        .arg("read")
+        .arg(app.join("Contents").join("Info"))
+        .arg("CFBundleIdentifier")
+        .output()
+        .ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Where a Mac tool goes. One copy only: the one already in /Applications (what people pin to
+/// the Dock), else the one Toolbay installed before, else ~/Applications/Toolbay. Two copies
+/// meant two Dock icons, and macOS permissions granted to one didn't apply to the other.
+#[cfg(target_os = "macos")]
+fn mac_target(root: &Path, name: &std::ffi::OsStr, id: Option<&str>, previous: Option<PathBuf>) -> (PathBuf, Vec<PathBuf>) {
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let mut places = vec![PathBuf::from("/Applications").join(name)];
+    places.extend(previous);
+    places.push(root.join(name));
+    places.push(home.join("Applications").join(name));
+    let same = |p: &PathBuf| p.is_dir() && id.map_or(p.starts_with(root), |id| bundle_id(p).as_deref() == Some(id));
+    let mut copies: Vec<PathBuf> = Vec::new();
+    for p in places {
+        if same(&p) && !copies.contains(&p) {
+            copies.push(p);
+        }
+    }
+    // Only keep the /Applications copy if Toolbay can update it.
+    copies.retain(|p| !p.starts_with("/Applications") || writable(p));
+    let target = copies.first().cloned().unwrap_or_else(|| root.join(name));
+    let others = copies.into_iter().filter(|p| *p != target).collect();
+    (target, others)
+}
+
+#[cfg(target_os = "macos")]
+fn writable(p: &Path) -> bool {
+    // A copy installed by a .pkg belongs to the system, and Toolbay can't update it in place.
+    let probe = p.join("Contents").join(".toolbay-write-test");
+    let ok = std::fs::File::create(&probe).is_ok();
+    std::fs::remove_file(&probe).ok();
+    ok
+}
+
+#[cfg(target_os = "macos")]
+async fn install_dmg(
+    file: &Path,
+    root: &Path,
+    app_name: Option<&str>,
+    id: Option<&str>,
+    previous: Option<PathBuf>,
+) -> Result<PathBuf, String> {
     let mount = std::env::temp_dir().join(format!("toolbay-mnt-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&mount).map_err(|_| NO_SPACE.to_string())?;
     let ok = tokio::process::Command::new("hdiutil")
@@ -477,18 +532,49 @@ async fn install_dmg(file: &Path, root: &Path, app_name: Option<&str>) -> Result
     let src = app_in_volume(&mount, app_name);
     let result = match src {
         Some(src) => {
-            let dest = root.join(src.file_name().unwrap());
-            if dest.exists() {
-                std::fs::remove_dir_all(&dest).ok();
+            let (dest, others) = mac_target(root, src.file_name().unwrap(), id, previous);
+            // Update the bundle in place (same folder), so the Dock and macOS keep treating it as
+            // the same app; a fresh copy only when there's none yet or the in-place sync fails.
+            let mut copied = false;
+            if dest.is_dir() {
+                copied = tokio::process::Command::new("/usr/bin/rsync")
+                    .arg("-a")
+                    .arg("--delete")
+                    .arg(format!("{}/", src.display()))
+                    .arg(format!("{}/", dest.display()))
+                    .status()
+                    .await
+                    .map(|s| s.success())
+                    .unwrap_or(false);
             }
-            let copied = tokio::process::Command::new("ditto")
-                .arg(&src)
+            if !copied {
+                if dest.exists() {
+                    std::fs::remove_dir_all(&dest).ok();
+                }
+                copied = tokio::process::Command::new("ditto")
+                    .arg(&src)
+                    .arg(&dest)
+                    .status()
+                    .await
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+            }
+            if copied {
+                for o in others {
+                    std::fs::remove_dir_all(&o).ok();
+                }
+                // Tell Launch Services this is the copy to open.
+                let _ = tokio::process::Command::new(
+                    "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+                )
+                .arg("-f")
                 .arg(&dest)
                 .status()
-                .await
-                .map(|s| s.success())
-                .unwrap_or(false);
-            if copied { Ok(dest) } else { Err(NO_SPACE.to_string()) }
+                .await;
+                Ok(dest)
+            } else {
+                Err(NO_SPACE.to_string())
+            }
         }
         None => Err("Installed, but couldn't find the app in the download. Please reinstall.".into()),
     };
@@ -536,7 +622,13 @@ fn app_in_volume(mount: &Path, app_name: Option<&str>) -> Option<PathBuf> {
 }
 
 #[cfg(not(target_os = "macos"))]
-async fn install_dmg(_file: &Path, _root: &Path, _app: Option<&str>) -> Result<PathBuf, String> {
+async fn install_dmg(
+    _file: &Path,
+    _root: &Path,
+    _app: Option<&str>,
+    _id: Option<&str>,
+    _previous: Option<PathBuf>,
+) -> Result<PathBuf, String> {
     Err("This installer only runs on a Mac.".into())
 }
 

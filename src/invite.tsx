@@ -113,7 +113,7 @@ export function InvitePage({ hub }: { hub: Hub }) {
         {stats.map(([label, n]) => (
           <div className="fact" key={label}>
             <div className="fact-label">{label}</div>
-            <div className="fact-value" style={{ fontSize: 22 }}>
+            <div className="fact-value" style={{ fontSize: 18 }}>
               {n}
             </div>
           </div>
@@ -126,7 +126,7 @@ export function InvitePage({ hub }: { hub: Hub }) {
       )}
 
       <h2>Your level</h2>
-      <div className="panel" style={{ padding: "16px 18px" }}>
+      <div className="panel" style={{ padding: "12px 16px" }}>
         <div className="title">{inv.tier.name ?? "Not started yet"}</div>
         <div className="small muted" style={{ marginTop: 4 }}>
           {inv.tier.next
