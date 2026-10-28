@@ -12,14 +12,14 @@ const OBJECTS: Record<string, string> = Object.fromEntries(
 /** The tool's pixel object, or its icon when it has none yet. */
 export function ToolObject({ tool, className = "object", style }: { tool: Pick<Tool, "slug" | "name" | "iconUrl">; className?: string; style?: React.CSSProperties }) {
   const src = OBJECTS[tool.slug];
-  if (!src) return <Icon tool={tool} className={`${className} object-fallback`} />;
+  if (!src) return <Icon tool={tool} className={`${className} object-fallback`} style={style} />;
   return <img className={className} src={src} alt="" draggable={false} style={style} />;
 }
 
-export function Icon({ tool, className = "icon" }: { tool: Pick<Tool, "name" | "iconUrl">; className?: string }) {
+export function Icon({ tool, className = "icon", style }: { tool: Pick<Tool, "name" | "iconUrl">; className?: string; style?: React.CSSProperties }) {
   const [failed, setFailed] = useState(false);
   return (
-    <div className={className}>
+    <div className={className} style={style}>
       {tool.iconUrl && !failed ? <img src={tool.iconUrl} alt="" onError={() => setFailed(true)} /> : tool.name.charAt(0)}
     </div>
   );

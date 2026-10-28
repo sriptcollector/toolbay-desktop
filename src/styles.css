@@ -240,7 +240,14 @@ h2 { font-size: 15px; line-height: 20px; font-weight: 700; letter-spacing: -0.01
 .grid { row-gap: var(--s5); padding-top: var(--s4); grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .tile, .tile-art { overflow: visible; }
 .object { display: block; image-rendering: pixelated; user-select: none; pointer-events: none; }
-.object-fallback { background: transparent; }
+/* A tool with no pixel object yet shows its icon in the same box: square, as tall as an object
+   (.tile-object / .hero-object set the height), image contained, corners rounded like an app icon. */
+.object-fallback {
+  aspect-ratio: 1; width: auto; overflow: hidden; border-radius: 22%; background: var(--chip);
+  display: grid; place-items: center; font-size: 32px; font-weight: 700; color: var(--text-bright);
+}
+.object-fallback:has(img) { background: transparent; }
+.object-fallback img { display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: auto; }
 .tile-object {
   position: absolute; left: 50%; bottom: 12px; width: auto; height: 92%; margin-left: 0;
   transform: translate(-50%, -6px); transform-origin: 50% 100%;
