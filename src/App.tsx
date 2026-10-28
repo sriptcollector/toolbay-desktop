@@ -49,6 +49,8 @@ export interface Hub {
   close: (t: Tool) => Promise<void>;
   /** Close it if open, install the waiting version, open it again. */
   update: (t: Tool) => Promise<void>;
+  /** Check for a newer Toolbay and install it (progress shows in the top bar). */
+  updateHub: () => Promise<"latest" | "failed" | "updating">;
   refreshPosts: () => Promise<void>;
   addPost: (p: Post) => void;
   signIn: () => void;
@@ -66,19 +68,86 @@ const NAV: { page: Page; label: string }[] = [
 /** Tools whose slug changed on toolbay.ai, so old links and installs still find them. */
 const RENAMED: Record<string, string> = { "toolbay-notes": "cereal" };
 
-/** Keep Toolbay itself up to date without asking: download, install quietly, restart.
- *  Open tools are separate apps, so they keep running while the hub restarts. */
-async function updateHubQuietly() {
+/** Toolbay updating itself, shown in the big bar at the top of the window. */
+export interface HubUpdate {
+  version: string;
+  stage: "downloading" | "installing" | "restarting";
+  received: number;
+  total: number | null;
+}
+
+/** Keep Toolbay itself up to date without asking: download (with the top progress bar), install
+ *  quietly, restart. Open tools are separate apps, so they keep running while the hub restarts.
+ *  Resolves "latest" when there's nothing newer, "failed" when it couldn't check or install. */
+let hubUpdating = false;
+async function runHubUpdate(show: (u: HubUpdate | null) => void): Promise<"latest" | "failed" | "updating"> {
+  if (hubUpdating) return "updating";
+  hubUpdating = true;
   try {
     const { check } = await import("@tauri-apps/plugin-updater");
     const update = await check();
-    if (!update) return;
-    await update.downloadAndInstall();
+    if (!update) return "latest";
+    let state: HubUpdate = { version: update.version, stage: "downloading", received: 0, total: null };
+    show(state);
+    await update.downloadAndInstall((e) => {
+      if (e.event === "Started") state = { ...state, total: e.data.contentLength ?? null };
+      else if (e.event === "Progress") state = { ...state, received: state.received + e.data.chunkLength };
+      else state = { ...state, stage: "installing" };
+      show(state);
+    });
+    show({ ...state, stage: "restarting" });
     const { relaunch } = await import("@tauri-apps/plugin-process");
     await relaunch();
+    return "updating";
   } catch {
     // Offline or no release yet: the next check tries again.
+    show(null);
+    return "failed";
+  } finally {
+    hubUpdating = false;
   }
+}
+
+const mb = (n: number) => (n / 1048576).toFixed(1);
+
+/** The big progress bar across the top while Toolbay or a tool updates. */
+function UpdateBar({ hub, tools, progress }: { hub: HubUpdate | null; tools: Record<string, string>; progress: Record<string, Progress> }) {
+  const rows: { key: string; title: string; detail: string; frac: number | null }[] = [];
+  if (hub) {
+    const frac = hub.stage !== "downloading" ? 1 : hub.total ? Math.min(1, hub.received / hub.total) : null;
+    rows.push({
+      key: "hub",
+      title: hub.stage === "restarting" ? `Restarting Toolbay ${hub.version}…` : hub.stage === "installing" ? `Installing Toolbay ${hub.version}…` : `Updating Toolbay to ${hub.version}`,
+      detail: hub.stage !== "downloading" ? "Almost done" : hub.total ? `${mb(hub.received)} of ${mb(hub.total)} MB · ${Math.round((frac ?? 0) * 100)}%` : `${mb(hub.received)} MB`,
+      frac,
+    });
+  }
+  for (const [slug, name] of Object.entries(tools)) {
+    const p = progress[slug];
+    const frac = p?.stage === "installing" ? 1 : p?.stage === "downloading" && p.total ? Math.min(1, p.received / p.total) : null;
+    rows.push({
+      key: slug,
+      title: p?.stage === "installing" ? `Installing the new ${name}…` : `Updating ${name}`,
+      detail: p?.stage === "downloading" ? (p.total ? `${mb(p.received)} of ${mb(p.total)} MB · ${Math.round((frac ?? 0) * 100)}%` : `${mb(p.received)} MB`) : p?.stage === "installing" ? "Almost done" : "Starting…",
+      frac,
+    });
+  }
+  if (!rows.length) return null;
+  return (
+    <div className="update-bar" role="status" aria-live="polite">
+      {rows.map((r) => (
+        <div className="update-bar-row" key={r.key}>
+          <div className="update-bar-text">
+            <span className="update-bar-title">{r.title}</span>
+            <span className="update-bar-detail">{r.detail}</span>
+          </div>
+          <div className={`update-bar-track ${r.frac === null ? "indeterminate" : ""}`}>
+            <div style={r.frac === null ? undefined : { transform: `scaleX(${r.frac})` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function App() {
@@ -107,6 +176,15 @@ export default function App() {
   const [pendingUpdates, setPendingUpdates] = useState<Record<string, string>>({});
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [wish, setWish] = useState<Wish | null>(null);
+  // `npm run dev`, open with ?updatebar: preview the top update bar mid-download.
+  const [hubUpdate, setHubUpdate] = useState<HubUpdate | null>(() =>
+    import.meta.env.DEV && location.search.includes("updatebar")
+      ? { version: "0.1.14", stage: "downloading", received: 7.4 * 1048576, total: 18.2 * 1048576 }
+      : null,
+  );
+  /** Tools updating right now (slug → name), for the top bar. */
+  const [toolUpdates, setToolUpdates] = useState<Record<string, string>>({});
+  const doneUpdating = useCallback((slug: string) => setToolUpdates(({ [slug]: _, ...rest }) => rest), []);
 
   const toast = useCallback((m: string) => {
     setToastMsg(m);
@@ -172,22 +250,27 @@ export default function App() {
     api.posts().then((p) => setPosts(p.data));
     refreshLibrary();
     native.running().then(setRunning);
-    if (isTauri) updateHubQuietly();
-    const hubUpdateTimer = isTauri ? window.setInterval(updateHubQuietly, 30 * 60 * 1000) : 0;
+    const updateHub = () => runHubUpdate(setHubUpdate);
+    if (isTauri) updateHub();
+    const hubUpdateTimer = isTauri ? window.setInterval(updateHub, 30 * 60 * 1000) : 0;
     native.me().then(setUser);
     const subs = [
-      native.onProgress((p) =>
+      native.onProgress((p) => {
+        if (p.stage === "error") doneUpdating(p.slug);
         setProgress((cur) => {
           if (p.stage === "done" || p.stage === "error") {
             const { [p.slug]: _, ...rest } = cur;
             return rest;
           }
           return { ...cur, [p.slug]: p };
-        }),
-      ),
+        });
+      }),
       native.onRunning(setRunning),
       native.onLibrary(refreshLibrary),
+      native.onUpdateStarted((u) => setToolUpdates((cur) => ({ ...cur, [u.slug]: u.name }))),
+      native.onUpdateFailed((u) => doneUpdating(u.slug)),
       native.onUpdated((u) => {
+        doneUpdating(u.slug);
         toast(`${u.name} was updated to ${u.version}.`);
         refreshLibrary();
       }),
@@ -211,7 +294,7 @@ export default function App() {
       window.removeEventListener("focus", retryIfDown);
       subs.forEach((p) => p.then((un) => un()));
     };
-  }, [refreshLibrary, toast, takeRoutes]);
+  }, [refreshLibrary, toast, takeRoutes, doneUpdating]);
 
   // Ready uploaded projects, so Library can show and open the ones you've installed.
   useEffect(() => {
@@ -283,6 +366,7 @@ export default function App() {
       },
       open: (t) => act(t, "opening", () => native.open(t.slug)),
       close: (t) => act(t, "closing", () => native.close(t.slug)),
+      updateHub: () => runHubUpdate(setHubUpdate),
       update: async (t) => {
         setProgress((cur) => ({ ...cur, [t.slug]: { slug: t.slug, stage: "preparing", received: 0, total: null } }));
         try {
@@ -311,73 +395,76 @@ export default function App() {
   else body = <HomePage hub={hub} />;
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="logo">
-          <img src={logo} alt="" />
-          toolbay
-        </div>
-        {NAV.map((n) => (
+    <div className="frame">
+      <UpdateBar hub={hubUpdate} tools={toolUpdates} progress={progress} />
+      <div className="shell">
+        <aside className="sidebar">
+          <div className="logo">
+            <img src={logo} alt="" />
+            toolbay
+          </div>
+          {NAV.map((n) => (
+            <button
+              key={n.page}
+              className={`nav-item ${route.page === n.page || (n.page === "library" && route.page === "projects") ? "active" : ""}`}
+              onClick={() => setRoute({ page: n.page })}
+            >
+              <NavIcon name={n.page} />
+              {n.label}
+              {n.page === "library" && library.length > 0 && <span className="nav-count">{library.length}</span>}
+              {n.page === "running" && running.length > 0 && (
+                <span className="nav-count live">
+                  <span className="dot" /> {running.length}
+                </span>
+              )}
+            </button>
+          ))}
+          <div className="spacer" />
           <button
-            key={n.page}
-            className={`nav-item ${route.page === n.page || (n.page === "library" && route.page === "projects") ? "active" : ""}`}
-            onClick={() => setRoute({ page: n.page })}
+            className={`nav-item ${route.page === "invite" ? "active" : ""}`}
+            onClick={() => setRoute({ page: "invite" })}
           >
-            <NavIcon name={n.page} />
-            {n.label}
-            {n.page === "library" && library.length > 0 && <span className="nav-count">{library.length}</span>}
-            {n.page === "running" && running.length > 0 && (
-              <span className="nav-count live">
-                <span className="dot" /> {running.length}
-              </span>
-            )}
+            <NavIcon name="invite" />
+            Invite friends
           </button>
-        ))}
-        <div className="spacer" />
-        <button
-          className={`nav-item ${route.page === "invite" ? "active" : ""}`}
-          onClick={() => setRoute({ page: "invite" })}
-        >
-          <NavIcon name="invite" />
-          Invite friends
-        </button>
-        <button className="btn upload-cta" onClick={() => setRoute({ page: "projects" })}>
-          Upload your app
-        </button>
-        <button
-          className={`nav-item ${route.page === "settings" ? "active" : ""}`}
-          onClick={() => setRoute({ page: "settings" })}
-        >
-          <NavIcon name="settings" />
-          Settings
-        </button>
-        {user ? (
+          <button className="btn upload-cta" onClick={() => setRoute({ page: "projects" })}>
+            Upload your app
+          </button>
           <button
-            className={`nav-item account ${route.page === "profile" && route.slug === user.handle ? "active" : ""}`}
-            onClick={() => setRoute({ page: "profile", slug: user.handle })}
+            className={`nav-item ${route.page === "settings" ? "active" : ""}`}
+            onClick={() => setRoute({ page: "settings" })}
           >
-            {user.avatarUrl ? (
-              <img className="avatar" src={user.avatarUrl} alt="" />
-            ) : (
-              <div className="avatar">{(user.name || user.handle).charAt(0).toUpperCase()}</div>
-            )}
-            {user.name || `@${user.handle}`}
+            <NavIcon name="settings" />
+            Settings
           </button>
-        ) : (
-          <button className="nav-item" onClick={hub.signIn}>
-            <span className="avatar">?</span>
-            Sign in
-          </button>
-        )}
-      </aside>
-      <main className="main">
-        <div className="content" key={`${route.page}/${route.slug ?? ""}`}>
-          {!live && <div className="banner">Couldn't reach toolbay.ai, so this list may be out of date.</div>}
-          {body}
-        </div>
-      </main>
-      {wish && <InstallPrompt hub={hub} wish={wish} onDone={() => setWish(null)} />}
-      {toastMsg && <div className="toast">{toastMsg}</div>}
+          {user ? (
+            <button
+              className={`nav-item account ${route.page === "profile" && route.slug === user.handle ? "active" : ""}`}
+              onClick={() => setRoute({ page: "profile", slug: user.handle })}
+            >
+              {user.avatarUrl ? (
+                <img className="avatar" src={user.avatarUrl} alt="" />
+              ) : (
+                <div className="avatar">{(user.name || user.handle).charAt(0).toUpperCase()}</div>
+              )}
+              {user.name || `@${user.handle}`}
+            </button>
+          ) : (
+            <button className="nav-item" onClick={hub.signIn}>
+              <span className="avatar">?</span>
+              Sign in
+            </button>
+          )}
+        </aside>
+        <main className="main">
+          <div className="content" key={`${route.page}/${route.slug ?? ""}`}>
+            {!live && <div className="banner">Couldn't reach toolbay.ai, so this list may be out of date.</div>}
+            {body}
+          </div>
+        </main>
+        {wish && <InstallPrompt hub={hub} wish={wish} onDone={() => setWish(null)} />}
+        {toastMsg && <div className="toast">{toastMsg}</div>}
+      </div>
     </div>
   );
 }

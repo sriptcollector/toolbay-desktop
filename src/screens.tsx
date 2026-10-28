@@ -972,19 +972,14 @@ export function SettingsPage({
   };
   const checkUpdate = async () => {
     setUpdate("Checking…");
-    try {
-      const { check } = await import("@tauri-apps/plugin-updater");
-      const u = await check();
-      if (!u) return setUpdate("You have the latest version.");
-      setUpdate(`Installing Toolbay ${u.version}…`);
-      await u.downloadAndInstall();
-      const { relaunch } = await import("@tauri-apps/plugin-process");
-      await relaunch();
-    } catch {
-      setUpdate(
-        "Couldn't check for updates. Check your internet connection and try again.",
-      );
-    }
+    const r = await hub.updateHub();
+    setUpdate(
+      r === "latest"
+        ? "You have the latest version."
+        : r === "failed"
+          ? "Couldn't check for updates. Check your internet connection and try again."
+          : "Updating. Progress shows at the top of the window.",
+    );
   };
   const auto = settings.autoUpdate !== "false";
   const appearance = useAppearance();

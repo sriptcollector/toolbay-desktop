@@ -940,9 +940,12 @@ async fn update_now(app: &AppHandle, slug: &str) -> Result<InstalledTool, String
     if !begin_update(slug) {
         return Err(format!("{} is already updating.", t.name));
     }
+    // The hub shows a big progress bar at the top until "tool-updated" or an error.
+    app.emit("tool-update-started", serde_json::json!({ "slug": slug, "name": t.name })).ok();
     let was_running = is_running(app, slug);
     if was_running && !crate::running::close(app, slug, false).await {
         end_update(slug);
+        app.emit("tool-update-failed", serde_json::json!({ "slug": slug })).ok();
         return Err(format!("{} didn't close. Close it, then click Update.", t.name));
     }
     let source = source_for(app, &t);

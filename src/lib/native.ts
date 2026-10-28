@@ -63,6 +63,9 @@ export const native = {
   onRunning: (cb: (r: RunInfo[]) => void) => on<RunInfo[]>("running-changed", cb),
   onLibrary: (cb: () => void) => on<null>("library-changed", () => cb()),
   onUpdated: (cb: (p: { slug: string; name: string; version: string }) => void) => on("tool-updated", cb),
+  /** An installed tool started updating (shown in the top update bar until it's updated or fails). */
+  onUpdateStarted: (cb: (p: { slug: string; name: string }) => void) => on("tool-update-started", cb),
+  onUpdateFailed: (cb: (p: { slug: string }) => void) => on("tool-update-failed", cb),
   /** A newer version was found for a tool that's open; it waits for "Update now" or for the tool to close. */
   onUpdateReady: (cb: (p: { slug: string; name: string; version: string }) => void) => on("tool-update-ready", cb),
   pendingUpdates: (): Promise<Record<string, string>> => (isTauri ? invoke("tool_pending_updates") : Promise.resolve({})),

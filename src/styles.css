@@ -131,7 +131,18 @@ button, input, textarea { font: inherit; color: inherit; }
 ::selection { background: var(--premium-tint); }
 :focus-visible { outline: 1px solid var(--premium-bright); outline-offset: 1px; }
 
-.shell { display: flex; height: 100%; }
+.frame { display: flex; flex-direction: column; height: 100%; }
+.shell { display: flex; flex: 1; min-height: 0; }
+
+/* Big progress bar across the top while Toolbay or a tool updates (App.tsx UpdateBar) */
+.update-bar { flex: none; display: grid; gap: 12px; padding: 14px 24px 16px; background: var(--card); border-bottom: 1px solid var(--line-strong); }
+.update-bar-text { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s3); margin-bottom: 8px; }
+.update-bar-title { font-size: 15px; font-weight: 600; color: var(--text-bright); }
+.update-bar-detail { font-size: 13px; color: var(--body); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.update-bar-track { height: 12px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.update-bar-track > div { height: 100%; width: 100%; border-radius: 999px; background: var(--premium); transform-origin: left; transform: scaleX(0); transition: transform 200ms linear; }
+.update-bar-track.indeterminate > div { width: 30%; animation: update-slide 1.2s ease-in-out infinite; }
+@keyframes update-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 
 /* Sidebar */
 .sidebar {
