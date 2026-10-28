@@ -37,7 +37,7 @@ pub async fn auth_user(app: AppHandle) -> Option<Value> {
     if let Some(user) = store::setting(&app, "user").and_then(|u| serde_json::from_str(&u).ok()) {
         return Some(user);
     }
-    // Token kept in the keychain (e.g. after a reinstall) but no saved profile: ask who it is.
+    // Token kept (keychain on Windows, session file on macOS; e.g. after a reinstall) but no saved profile: ask who it is.
     let res = api::send(&app, "GET", "/api/v1/me", None).await.ok()?;
     if res.status == 401 {
         let _ = api::set_token(None); // revoked or expired
@@ -130,7 +130,7 @@ pub fn handle_deep_link(app: &AppHandle, raw: &str) {
         // toolbay://signin: a tool (e.g. Toolbay Flow) asking the hub to sign the person in.
         "signin" => {
             if api::token().is_some() {
-                return; // already signed in; tools read the token from the keychain
+                return; // already signed in; tools read the token (keychain on Windows, session file on macOS)
             }
             if let Err(e) = start_sign_in(app, &app.state::<AuthState>()) {
                 app.emit("auth-error", e).ok();

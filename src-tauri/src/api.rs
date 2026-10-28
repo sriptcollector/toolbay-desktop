@@ -30,14 +30,63 @@ pub fn base_url(app: &AppHandle) -> String {
         .to_string()
 }
 
+/// macOS: the token is a 0600 file, `~/Library/Application Support/ai.toolbay.desktop/session`,
+/// that the Toolbay tools read too. Not the keychain: the apps are ad-hoc signed, so every
+/// update looks like a new app to the keychain and macOS asked for the login password.
+#[cfg(target_os = "macos")]
+fn token_file() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(std::path::PathBuf::from(home).join("Library/Application Support").join(KEYRING_SERVICE).join(KEYRING_USER))
+}
+
+#[cfg(target_os = "macos")]
+pub fn token() -> Option<String> {
+    let t = std::fs::read_to_string(token_file()?).ok()?;
+    let t = t.trim();
+    (!t.is_empty()).then(|| t.to_string())
+}
+
+#[cfg(target_os = "macos")]
+pub fn set_token(token: Option<&str>) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let path = token_file().ok_or("no home folder")?;
+    match token {
+        Some(t) => {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+            }
+            let tmp = path.with_extension("tmp");
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(&tmp)
+                .map_err(|e| e.to_string())?;
+            f.write_all(t.as_bytes()).map_err(|e| e.to_string())?;
+            drop(f);
+            std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+        }
+        None => match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.to_string()),
+        },
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
 fn entry() -> Option<keyring::Entry> {
     keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).ok()
 }
 
+#[cfg(not(target_os = "macos"))]
 pub fn token() -> Option<String> {
     entry()?.get_password().ok()
 }
 
+#[cfg(not(target_os = "macos"))]
 pub fn set_token(token: Option<&str>) -> Result<(), String> {
     let e = entry().ok_or("keychain unavailable")?;
     match token {

@@ -1,5 +1,5 @@
 //! Small JSON files in the app data dir: settings.json and library.json.
-//! (Tokens live in the OS keychain, see api.rs.)
+//! (Tokens live in the Windows keychain or a macOS session file, see api.rs.)
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
