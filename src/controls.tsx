@@ -1,12 +1,11 @@
 // One set of controls for a tool, used everywhere (featured hero, tool page, Library, Running now),
 // so a tool looks and behaves the same in every state:
 //   not installed -> Install        installing -> progress        installed -> Open
-//   running, window shown -> Running · Hide · Close · [Switch to]
-//   running, in background -> In background · Close · [Show]
+//   running -> Running · Close · [Switch to]
 import { useEffect, useState } from "react";
 import type { Hub } from "./App";
 import { isTauri } from "./lib/api";
-import { formatSize, native, platform, type RunInfo } from "./lib/native";
+import { formatSize, native, platform } from "./lib/native";
 import type { Resolved, Tool } from "./lib/types";
 
 const resolvedCache = new Map<string, Resolved | null>();
@@ -35,13 +34,12 @@ export function totalSize(r: Resolved | null | undefined) {
   return r.entry.size + r.manifest.files.reduce((a, f) => a + (f.size ?? 0), 0);
 }
 
-/** "● Running" / "● In background", one line, never wraps. */
-export function RunStatus({ run }: { run: RunInfo }) {
-  const bg = run.window === "hidden";
+/** "● Running", one line, never wraps. */
+export function RunStatus() {
   return (
-    <span className={`status ${bg ? "bg" : "live"}`}>
+    <span className="status live">
       <span className="dot" />
-      {bg ? "In background" : "Running"}
+      Running
     </span>
   );
 }
@@ -65,22 +63,16 @@ export function ToolControls({ hub, tool, size = "row" }: { hub: Hub; tool: Tool
   if (p) return <InstallProgress hub={hub} slug={tool.slug} big={big} />;
 
   if (run) {
-    const hidden = run.window === "hidden";
     return (
       <div className={`controls controls-${size}`}>
         <div className="controls-main">
           <button className={primary} disabled={!!busy} onClick={() => hub.open(tool)}>
-            {busy === "opening" ? "Opening…" : hidden ? "Show" : "Switch to"}
+            {busy === "opening" ? "Opening…" : "Switch to"}
           </button>
         </div>
         <div className="controls-sub">
-          <RunStatus run={run} />
+          <RunStatus />
           {updateBtn}
-          {!hidden && (
-            <button className={secondary} disabled={!!busy} onClick={() => hub.hide(tool)}>
-              {busy === "hiding" ? "Hiding…" : "Hide"}
-            </button>
-          )}
           <button className={secondary} disabled={!!busy} onClick={() => hub.close(tool)}>
             {busy === "closing" ? "Closing…" : "Close"}
           </button>

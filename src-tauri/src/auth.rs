@@ -88,13 +88,17 @@ pub fn handle_deep_link(app: &AppHandle, raw: &str) {
         .map(|s| s.filter(|x| !x.is_empty()).map(String::from).collect())
         .unwrap_or_default();
 
-    // toolbay://launch/<slug>: open the tool, keep the hub in the tray.
+    // toolbay://launch/<slug>: open the tool. Nothing runs in the background, so if the hub
+    // window isn't open the hub quits once the tool has started.
     if host == "launch" {
         if let Some(slug) = segments.first() {
-            if let Err(e) = crate::installer::tool_launch(app.clone(), slug.clone()) {
-                show(app);
-                crate::firstrun::push_route(app, serde_json::json!({ "kind": "tool", "slug": slug }));
-                app.emit("auth-error", e).ok();
+            match crate::installer::tool_launch(app.clone(), slug.clone()) {
+                Ok(()) => quit_if_hidden(app),
+                Err(e) => {
+                    show(app);
+                    crate::firstrun::push_route(app, serde_json::json!({ "kind": "tool", "slug": slug }));
+                    app.emit("auth-error", e).ok();
+                }
             }
         }
         return;
@@ -152,6 +156,22 @@ pub fn handle_deep_link(app: &AppHandle, raw: &str) {
         }
         _ => {}
     }
+}
+
+/// After a shortcut started a tool: quit the hub unless its window has been opened meanwhile.
+/// An install or update that's under way finishes first (quitting mid-copy would break the tool).
+fn quit_if_hidden(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        while !app.state::<crate::installer::Busy>().0.lock().unwrap().is_empty() {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        let visible = app.get_webview_window("main").is_some_and(|w| w.is_visible().unwrap_or(true));
+        if !visible {
+            app.exit(0);
+        }
+    });
 }
 
 fn show(app: &AppHandle) {

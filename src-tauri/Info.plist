@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
   <key>NSAppleEventsUsageDescription</key>
-  <string>Toolbay hides and brings forward the tools you open from it.</string>
+  <string>Toolbay brings forward the tools you open from it.</string>
 </dict>
 </plist>

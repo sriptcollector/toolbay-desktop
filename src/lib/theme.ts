@@ -29,10 +29,6 @@ const resolve = (): Theme => (appearance === "system" ? (mq && !mq.matches ? "li
 function apply() {
   const theme = resolve();
   document.documentElement.dataset.theme = theme;
-  // The Dock / taskbar icon follows too.
-  if ("__TAURI_INTERNALS__" in window) {
-    import("@tauri-apps/api/core").then(({ invoke }) => invoke("set_app_icon", { dark: theme === "dark" })).catch(() => {});
-  }
   listeners.forEach((l) => l());
 }
 

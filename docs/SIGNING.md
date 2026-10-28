@@ -7,7 +7,7 @@ Add the same secrets to this repo (GitHub → sriptcollector/toolbay-desktop →
 variables → Actions) and tag a release; `.github/workflows/release.yml` turns signing on by itself.
 
 - **macOS today:** every build is ad-hoc signed with the hardened runtime and
-  `src-tauri/Entitlements.plist` (Apple Events only, for Hide/Show of running tools). A downloaded copy
+  `src-tauri/Entitlements.plist` (Apple Events only, for Switch to on running tools). A downloaded copy
   shows "Open Anyway" in System Settings → Privacy & Security instead of "is damaged". CI fails the
   release unless `codesign --verify --deep --strict` passes on the app and on the app inside the DMG.
 - **macOS with Apple secrets** (`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_ID`,

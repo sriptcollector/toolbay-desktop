@@ -126,7 +126,7 @@ pub async fn install_tool(app: AppHandle, slug: String, source: String) -> Resul
 }
 
 async fn install(app: &AppHandle, slug: &str, source: &str) -> Result<InstalledTool, String> {
-    if is_running(app, slug) {
+    if in_use(app, slug) {
         return Err("Close the tool first, then try again.".into());
     }
     emit(app, slug, "preparing", 0, None, None);
@@ -180,6 +180,11 @@ async fn install(app: &AppHandle, slug: &str, source: &str) -> Result<InstalledT
         .map(|t| PathBuf::from(t.dir))
         .filter(|d| d.is_dir() && cfg!(windows));
     let dir = previous_dir.unwrap_or_else(|| tools_root(app).join(sanitize(&r.manifest.id)));
+    // It may have been opened while the download ran: never replace files a running app uses.
+    if in_use(app, slug) || crate::running::path_in_use(&dir) {
+        std::fs::remove_dir_all(&staging).ok();
+        return Err("Close the tool first, then try again.".into());
+    }
     let (exe, uninstaller) = match kind.as_str() {
         "nsis" => install_nsis(&package, &dir, &r).await?,
         "zip" => {
@@ -247,7 +252,6 @@ async fn install(app: &AppHandle, slug: &str, source: &str) -> Result<InstalledT
         let _ = tool_shortcut(app.clone(), slug.to_string());
     }
     app.emit("library-changed", ()).ok();
-    crate::rebuild_tray(app);
     Ok(entry)
 }
 
@@ -522,6 +526,8 @@ fn mac_copies(target: &Path, name: &std::ffi::OsStr, id: Option<&str>, previous:
 fn mac_target(root: &Path, name: &std::ffi::OsStr, id: Option<&str>, previous: Option<PathBuf>) -> (PathBuf, Vec<PathBuf>) {
     let target = root.join(name);
     let mut others = mac_copies(&target, name, id, previous);
+    // Copies something is running from are left alone (moving or deleting an open app breaks it).
+    others.retain(|p| !crate::running::path_in_use(p));
     if !target.exists() {
         if let Some(i) = others.iter().position(|p| std::fs::rename(p, &target).is_ok()) {
             others.remove(i);
@@ -536,6 +542,10 @@ fn mac_target(root: &Path, name: &std::ffi::OsStr, id: Option<&str>, previous: O
 fn remove_copies(app_name: &str, copies: Vec<PathBuf>) {
     let mut stubborn = vec![];
     for c in copies {
+        // Never delete a copy that any process is running from.
+        if crate::running::path_in_use(&c) {
+            continue;
+        }
         if std::fs::remove_dir_all(&c).is_err() && c.exists() {
             stubborn.push(c);
         }
@@ -581,6 +591,9 @@ async fn install_dmg(
     }
     let src = app_in_volume(&mount, app_name);
     let result = match src {
+        Some(src) if crate::running::path_in_use(&root.join(src.file_name().unwrap())) => {
+            Err("Close the tool first, then try again.".to_string())
+        }
         Some(src) => {
             let (dest, others) = mac_target(root, src.file_name().unwrap(), id, previous);
             // Update the bundle in place (same folder), so the Dock and macOS keep treating it as
@@ -694,15 +707,17 @@ fn is_running(app: &AppHandle, slug: &str) -> bool {
     crate::running::is_running(app, slug)
 }
 
-/// Show a plain-language message in the hub (used from the tray, where there's no button to fail on).
-pub fn notify_error(msg: &str) -> Result<(), String> {
-    if let Some(app) = APP.get() {
-        app.emit("auth-error", msg).ok();
+/// Running, judged by every process on the machine (not only the path the library recorded):
+/// anything running from the tool's program or its folder counts.
+fn in_use(app: &AppHandle, slug: &str) -> bool {
+    if is_running(app, slug) {
+        return true;
     }
-    Ok(())
+    store::library(app)
+        .into_iter()
+        .find(|t| t.slug == slug)
+        .is_some_and(|t| crate::running::path_in_use(Path::new(&t.exe)) || crate::running::path_in_use(Path::new(&t.dir)))
 }
-
-pub static APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
 
 /// Start the tool as its own app, signed in as the hub's user.
 #[tauri::command]
@@ -753,8 +768,11 @@ use std::os::windows::process::CommandExt;
 #[tauri::command]
 pub async fn tool_uninstall(app: AppHandle, slug: String) -> Result<(), String> {
     let tool = find(&app, &slug)?;
-    if is_running(&app, &slug) {
-        crate::running::close(&app, &slug).await;
+    if is_running(&app, &slug) && !crate::running::close(&app, &slug, false).await {
+        return Err(format!("{} didn't close. Close it, then try again.", tool.name));
+    }
+    if in_use(&app, &slug) {
+        return Err(format!("Close {} first, then try again.", tool.name));
     }
     if let Some(un) = tool.uninstaller.as_ref().filter(|u| Path::new(u).exists()) {
         #[cfg(windows)]
@@ -873,9 +891,10 @@ fn pending_key(slug: &str) -> String {
     format!("pendingUpdate:{slug}")
 }
 
-/// Look for a newer version and, with auto-update on (the default), install it right away. A tool
-/// that's open (Flow lives in the menu bar, so it nearly always is) is closed, updated and opened
-/// again. With auto-update off, the hub shows an "Update" button instead.
+/// Look for a newer version and, with auto-update on (the default), install it right away if the
+/// tool isn't running. A running tool is never closed for an update: the update waits and installs
+/// once it has fully exited (or when the person clicks "Update"). With auto-update off, the hub
+/// shows an "Update" button instead.
 pub async fn update_one(app: &AppHandle, slug: &str) {
     let Some(t) = store::library(app).into_iter().find(|t| t.slug == slug) else { return };
     let source = source_for(app, &t);
@@ -885,7 +904,7 @@ pub async fn update_one(app: &AppHandle, slug: &str) {
         return;
     }
     let auto = store::setting(app, "autoUpdate").as_deref() != Some("false");
-    if auto {
+    if auto && !in_use(app, slug) {
         let _ = update_now(app, slug).await;
         return;
     }
@@ -909,7 +928,8 @@ pub fn tool_pending_updates(app: AppHandle) -> std::collections::HashMap<String,
         .collect()
 }
 
-/// "Update now": close the tool if it's open, install the new version, and open it again.
+/// "Update now" (the person clicked Update): ask the tool to quit if it's open, install the new
+/// version, and open it again. It's never force-quit; if it won't close, nothing is touched.
 #[tauri::command]
 pub async fn tool_update_now(app: AppHandle, slug: String) -> Result<InstalledTool, String> {
     update_now(&app, &slug).await
@@ -921,8 +941,9 @@ async fn update_now(app: &AppHandle, slug: &str) -> Result<InstalledTool, String
         return Err(format!("{} is already updating.", t.name));
     }
     let was_running = is_running(app, slug);
-    if was_running {
-        crate::running::close(app, slug).await;
+    if was_running && !crate::running::close(app, slug, false).await {
+        end_update(slug);
+        return Err(format!("{} didn't close. Close it, then click Update.", t.name));
     }
     let source = source_for(app, &t);
     let result = install_tool(app.clone(), slug.to_string(), source).await;
@@ -938,13 +959,14 @@ async fn update_now(app: &AppHandle, slug: &str) -> Result<InstalledTool, String
 }
 
 /// Mac: move every installed tool into the one Toolbay folder and clear out duplicates, so each
-/// app exists once (one Dock icon, one set of permissions). Tools that are open are left until
-/// they're closed. macOS asks for a password at most once per stray system-owned copy.
+/// app exists once (one Dock icon, one set of permissions). Any copy something is running from
+/// (whatever its path) is left alone until it's closed. macOS asks for a password at most once
+/// per stray system-owned copy.
 #[cfg(target_os = "macos")]
 fn consolidate_mac(app: &AppHandle) {
     let root = tools_root(app);
     for mut t in store::library(app) {
-        if t.kind != "dmg" || is_running(app, &t.slug) {
+        if t.kind != "dmg" || in_use(app, &t.slug) {
             continue;
         }
         let exe = PathBuf::from(&t.exe);
@@ -959,6 +981,7 @@ fn consolidate_mac(app: &AppHandle) {
         let installed = PathBuf::from(&t.exe);
         let copies: Vec<PathBuf> = mac_copies(&installed, &name, t.identifier.as_deref(), None)
             .into_iter()
+            .filter(|c| !crate::running::path_in_use(c))
             .filter(|c| {
                 // Only ever ask for a password once per copy; after that just try quietly.
                 let key = format!("dupAsked:{}", c.to_string_lossy());

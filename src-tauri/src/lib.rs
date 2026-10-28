@@ -1,4 +1,3 @@
-mod appicon;
 mod api;
 mod auth;
 mod firstrun;
@@ -8,8 +7,6 @@ mod running;
 mod store;
 mod sync;
 
-use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 
@@ -19,62 +16,6 @@ fn show_main(app: &AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
     }
-}
-
-/// Tray menu: open the hub, then Open / Hide / Close for every installed tool, then Quit.
-fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
-    use tauri::menu::{PredefinedMenuItem, Submenu};
-    let menu = Menu::new(app)?;
-    menu.append(&MenuItem::with_id(app, "open", "Open Toolbay", true, None::<&str>)?)?;
-    let lib = store::library(app);
-    if !lib.is_empty() {
-        menu.append(&PredefinedMenuItem::separator(app)?)?;
-        let running = app.state::<running::RunState>().tools.lock().unwrap().clone();
-        for t in lib {
-            let on = running.contains_key(&t.slug);
-            let label = if on { format!("{}  ·  running", t.name) } else { t.name.clone() };
-            let sub = Submenu::with_items(
-                app,
-                label,
-                true,
-                &[
-                    &MenuItem::with_id(app, format!("tool:open:{}", t.slug), "Open", true, None::<&str>)?,
-                    &MenuItem::with_id(app, format!("tool:hide:{}", t.slug), "Hide", on, None::<&str>)?,
-                    &MenuItem::with_id(app, format!("tool:close:{}", t.slug), "Close", on, None::<&str>)?,
-                ],
-            )?;
-            menu.append(&sub)?;
-        }
-    }
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(app, "quit", "Quit Toolbay", true, None::<&str>)?)?;
-    Ok(menu)
-}
-
-pub fn rebuild_tray(app: &AppHandle) {
-    if let (Some(tray), Ok(menu)) = (app.tray_by_id("main"), tray_menu(app)) {
-        let _ = tray.set_menu(Some(menu));
-    }
-}
-
-fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    TrayIconBuilder::with_id("main")
-        .icon(app.default_window_icon().unwrap().clone())
-        .tooltip("Toolbay")
-        .menu(&tray_menu(app)?)
-        .show_menu_on_left_click(false)
-        .on_menu_event(|app, e| match e.id.as_ref() {
-            "open" => show_main(app),
-            "quit" => app.exit(0),
-            id => running::handle_tray(app, id),
-        })
-        .on_tray_icon_event(|tray, e| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
-                show_main(tray.app_handle());
-            }
-        })
-        .build(app)?;
-    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -137,8 +78,6 @@ pub fn run() {
                 auth::handle_deep_link(&handle, link);
             }
 
-            let _ = installer::APP.set(handle.clone());
-            build_tray(&handle)?;
             installer::ci_smoke_test(&handle);
             firstrun::check(&handle);
             running::start(&handle);
@@ -147,16 +86,27 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Closing the window keeps Toolbay in the tray so tools can update quietly.
+            // Closing the window quits Toolbay; nothing keeps running in the background. Only an
+            // install or update that's mid-copy finishes first (stopping it would break the tool).
             if let WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == "main" {
+                let app = window.app_handle().clone();
+                if window.label() == "main" && !app.state::<installer::Busy>().0.lock().unwrap().is_empty() {
                     api.prevent_close();
                     let _ = window.hide();
+                    tauri::async_runtime::spawn(async move {
+                        while !app.state::<installer::Busy>().0.lock().unwrap().is_empty() {
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        }
+                        // Opened again meanwhile (a second launch shows it): keep running.
+                        let reopened = app.get_webview_window("main").is_some_and(|w| w.is_visible().unwrap_or(false));
+                        if !reopened {
+                            app.exit(0);
+                        }
+                    });
                 }
             }
         })
         .invoke_handler(tauri::generate_handler![
-            appicon::set_app_icon,
             api::api_request,
             api::package_upload,
             firstrun::route_take,
@@ -174,7 +124,6 @@ pub fn run() {
             installer::tool_launch,
             running::tool_running,
             running::tool_open,
-            running::tool_hide,
             running::tool_close,
             sync::sync_other_tools,
             installer::tool_uninstall,

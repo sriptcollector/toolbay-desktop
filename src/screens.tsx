@@ -225,9 +225,7 @@ function ToolGrid({
                       {hub.busy[t.slug] === "opening"
                         ? "Opening…"
                         : run
-                          ? run.window === "hidden"
-                            ? "Show"
-                            : "Switch to"
+                          ? "Switch to"
                           : "Open"}
                     </button>
                   ) : (
@@ -674,13 +672,9 @@ function RunningList({ hub }: { hub: Hub }) {
             )}
             <div className="grow">
               <div className="title">{r.name}</div>
-              <div className="small muted">
-                {r.window === "hidden"
-                  ? "Hidden, still running. Its shortcuts keep working."
-                  : "Open on your screen"}
-              </div>
+              <div className="small muted">Open on your screen</div>
             </div>
-            {t ? <ToolControls hub={hub} tool={t} /> : <RunStatus run={r} />}
+            {t ? <ToolControls hub={hub} tool={t} /> : <RunStatus />}
           </div>
         );
       })}
@@ -693,8 +687,7 @@ export function RunningPage({ hub }: { hub: Hub }) {
     <>
       <h1>Running now</h1>
       <p className="lede">
-        Tools that are open right now. Hide keeps a tool running in the
-        background.
+        Tools that are open right now. Close one when you're done with it.
       </p>
       {hub.running.length === 0 ? (
         <div className="empty">
@@ -1027,8 +1020,8 @@ export function SettingsPage({
         <div className="grow">
           <div className="title">Update tools by themselves</div>
           <div className="small muted">
-            New versions install by themselves. An open tool restarts on the new
-            version.
+            New versions install by themselves. An open tool is never closed for
+            an update; it updates after you close it.
           </div>
         </div>
         <div className="seg">

@@ -4,8 +4,7 @@ import { native, sourceOf, type Progress, type RunInfo } from "./lib/native";
 import type { InstalledTool, Post, Tool, User } from "./lib/types";
 import { NavIcon } from "./components";
 import logo from "./assets/logo.png";
-import logoLight from "./assets/logo-light.png";
-import { loadAppearance, useResolvedTheme } from "./lib/theme";
+import { loadAppearance } from "./lib/theme";
 import { CommunityPage, HomePage, LibraryPage, RunningPage, SettingsPage, ToolDetail, ToolsPage } from "./screens";
 import { ProjectsPage, readyTools } from "./projects";
 import { ProfilePage } from "./profile";
@@ -33,8 +32,8 @@ export interface Hub {
   live: boolean;
   /** The catalog has loaded at least once (from the network or the last-run cache). */
   loaded: boolean;
-  /** Per tool: an Open/Hide/Close in flight. */
-  busy: Record<string, "opening" | "hiding" | "closing">;
+  /** Per tool: an Open/Close in flight. */
+  busy: Record<string, "opening" | "closing">;
   progress: Record<string, Progress>;
   /** Newer versions waiting for "Update now", by slug. */
   pendingUpdates: Record<string, string>;
@@ -47,7 +46,6 @@ export interface Hub {
   install: (t: Tool) => Promise<boolean>;
   uninstall: (t: Tool) => Promise<void>;
   open: (t: Tool) => Promise<void>;
-  hide: (t: Tool) => Promise<void>;
   close: (t: Tool) => Promise<void>;
   /** Close it if open, install the waiting version, open it again. */
   update: (t: Tool) => Promise<void>;
@@ -85,7 +83,6 @@ async function updateHubQuietly() {
 
 export default function App() {
   const [route, setRoute] = useState<Route>({ page: "home" });
-  const theme = useResolvedTheme();
   useEffect(loadAppearance, []);
   // First paint: last run's catalog, or the one bundled with the app; the live one replaces it.
   const [tools, setTools] = useState<Tool[]>(() => {
@@ -196,7 +193,7 @@ export default function App() {
       }),
       native.onUpdateReady((u) => {
         native.pendingUpdates().then(setPendingUpdates).catch(() => {});
-        toast(`${u.name} ${u.version} is ready. Click Update on its page.`);
+        toast(`${u.name} ${u.version} is ready. It installs when you close ${u.name}, or click Update on its page.`);
       }),
       native.onAuth((u) => {
         setUser(u);
@@ -225,7 +222,7 @@ export default function App() {
       .catch(() => {});
   }, [user]);
 
-  // Run an Open/Hide/Close, showing it as in progress until it finishes.
+  // Run an Open/Close, showing it as in progress until it finishes.
   const act = useCallback(
     async (t: Tool, what: Hub["busy"][string], fn: () => Promise<void>) => {
       setBusy((b) => ({ ...b, [t.slug]: what }));
@@ -285,7 +282,6 @@ export default function App() {
         }
       },
       open: (t) => act(t, "opening", () => native.open(t.slug)),
-      hide: (t) => act(t, "hiding", () => native.hide(t.slug)),
       close: (t) => act(t, "closing", () => native.close(t.slug)),
       update: async (t) => {
         setProgress((cur) => ({ ...cur, [t.slug]: { slug: t.slug, stage: "preparing", received: 0, total: null } }));
@@ -318,7 +314,7 @@ export default function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="logo">
-          <img src={theme === "light" ? logoLight : logo} alt="" />
+          <img src={logo} alt="" />
           toolbay
         </div>
         {NAV.map((n) => (

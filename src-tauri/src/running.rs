@@ -1,11 +1,11 @@
-//! "Running now": which installed tools are running, and Open / Hide / Close for them.
+//! "Running now": which installed tools are running, and Open (Switch to) / Close for them.
 //!
 //! Running state comes from the process list (matched on the installed program's path), so a
 //! tool started from a desktop shortcut or the Start menu shows up too, not only ones the hub
-//! launched. Windows: Open/Hide act on the tool's main window directly (the largest top-level
-//! window of its process), Close asks it to quit and force-quits after 5 s.
-//! A tool can also report its window state in <its app data dir>/toolbay-state.json
-//! {"pid":123,"window":"shown"|"hidden"}; that wins over our own guess when its pid matches.
+//! launched. A running tool is just "Running"; nothing is hidden or kept in the background.
+//! Close asks the tool to quit (its own quit command, then a polite quit signal) and only
+//! force-quits when the person pressed Close and it still didn't exit. Nothing else ever
+//! closes or force-quits a tool.
 use crate::store::{self, InstalledTool};
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -23,8 +23,6 @@ pub struct RunInfo {
     pub pid: u32,
     /// Unix seconds.
     pub started_at: u64,
-    /// "shown" | "hidden"
-    pub window: String,
 }
 
 #[derive(Default)]
@@ -67,30 +65,68 @@ pub fn scan(app: &AppHandle) -> BTreeMap<String, RunInfo> {
             }
         }
         if let Some((pid, started_at)) = best {
-            let window = reported_window(app, t, pid).unwrap_or_else(|| native::window_state(pid));
-            out.insert(
-                t.slug.clone(),
-                RunInfo { slug: t.slug.clone(), name: t.name.clone(), pid, started_at, window },
-            );
+            out.insert(t.slug.clone(), RunInfo { slug: t.slug.clone(), name: t.name.clone(), pid, started_at });
         }
     }
     out
 }
 
-/// The tool's own report of its window, if it writes one and it's about this process.
-/// Accepts {"window":"shown"|"hidden"} or {"visible":true|false}.
-fn reported_window(app: &AppHandle, t: &InstalledTool, pid: u32) -> Option<String> {
-    let id = t.identifier.as_deref()?;
-    let name = t.state_file.as_deref().unwrap_or("toolbay-state.json");
-    let file = app.path().data_dir().ok()?.join(id).join(name);
-    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()?;
-    if v["pid"].as_u64()? != pid as u64 {
-        return None;
+/// True if `exe` is `path` or lives inside it (a .app bundle or an install folder).
+fn inside(exe: &Path, path: &Path) -> bool {
+    if cfg!(windows) {
+        let lower = |p: &Path| PathBuf::from(p.to_string_lossy().to_lowercase());
+        lower(exe).starts_with(lower(path))
+    } else {
+        exe.starts_with(path)
     }
-    if let Some(w) = v["window"].as_str() {
-        return Some(w.to_string());
+}
+
+/// True if any process at all runs a program at `path` or inside it, whatever copy or path the
+/// library recorded. Checked before anything moves, replaces or deletes an installed app.
+pub fn path_in_use(path: &Path) -> bool {
+    if path.as_os_str().is_empty() {
+        return false;
     }
-    v["visible"].as_bool().map(|b| if b { "shown".into() } else { "hidden".into() })
+    let mut paths = vec![path.to_path_buf()];
+    if let Ok(real) = path.canonicalize() {
+        if real != path {
+            paths.push(real);
+        }
+    }
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing().with_exe(UpdateKind::Always));
+    sys.processes().values().any(|p| p.exe().is_some_and(|exe| paths.iter().any(|d| inside(exe, d))))
+}
+
+/// The program to run for a control command. macOS: the binary inside the .app bundle
+/// (Contents/MacOS/<CFBundleExecutable>); a bundle folder itself can't be started.
+fn control_program(t: &InstalledTool) -> PathBuf {
+    let exe = PathBuf::from(&t.exe);
+    #[cfg(target_os = "macos")]
+    {
+        if exe.extension().is_some_and(|e| e == "app") && exe.is_dir() {
+            if let Some(bin) = bundle_binary(&exe) {
+                return bin;
+            }
+        }
+    }
+    exe
+}
+
+#[cfg(target_os = "macos")]
+fn bundle_binary(app: &Path) -> Option<PathBuf> {
+    let out = std::process::Command::new("/usr/bin/defaults")
+        .arg("read")
+        .arg(app.join("Contents").join("Info"))
+        .arg("CFBundleExecutable")
+        .output()
+        .ok()?;
+    let mut name = if out.status.success() { String::from_utf8_lossy(&out.stdout).trim().to_string() } else { String::new() };
+    if name.is_empty() {
+        name = app.file_stem()?.to_string_lossy().to_string();
+    }
+    let bin = app.join("Contents").join("MacOS").join(name);
+    bin.is_file().then_some(bin)
 }
 
 /// Send a running tool one of its own control commands (single-instance forwards it).
@@ -98,14 +134,23 @@ fn send_control(t: &InstalledTool, args: &[String]) -> bool {
     if args.is_empty() {
         return false;
     }
-    let mut cmd = std::process::Command::new(&t.exe);
+    let mut cmd = std::process::Command::new(control_program(t));
     cmd.args(args);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
-    cmd.spawn().is_ok()
+    match cmd.spawn() {
+        Ok(mut child) => {
+            // Reap it once it has handed the command over and exited.
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 fn installed(app: &AppHandle, slug: &str) -> Option<InstalledTool> {
@@ -128,11 +173,14 @@ fn refresh(app: &AppHandle) {
     };
     if changed {
         app.emit("running-changed", now.values().cloned().collect::<Vec<_>>()).ok();
-        crate::rebuild_tray(app);
-        // Anything that just closed gets its pending update now.
+        // Anything that just closed gets its pending update now, once it has fully exited
+        // (update_one checks again that no process runs from it before touching anything).
         for slug in stopped {
             let app = app.clone();
-            tauri::async_runtime::spawn(async move { crate::installer::update_one(&app, &slug).await });
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                crate::installer::update_one(&app, &slug).await
+            });
         }
     }
 }
@@ -184,59 +232,31 @@ pub fn tool_open(app: AppHandle, slug: String) -> Result<(), String> {
     }
 }
 
-/// Hide: put its window away; the tool keeps running (e.g. Flow keeps its hotkey).
-#[tauri::command]
-pub fn tool_hide(app: AppHandle, slug: String) -> Result<(), String> {
-    let pid = app.state::<RunState>().tools.lock().unwrap().get(&slug).map(|r| r.pid);
-    let Some(pid) = pid else { return Ok(()) };
-    let asked = installed(&app, &slug).is_some_and(|t| send_control(&t, &t.hide_args));
-    if !asked && !native::hide(pid) {
-        return Err("Couldn't hide that window. Try again.".into());
-    }
-    nudge(&app);
-    Ok(())
-}
-
-/// Close: ask it to quit, then force it after 5 seconds.
+/// Close (the person pressed Close): ask it to quit, and force it if it still hasn't.
 #[tauri::command]
 pub async fn tool_close(app: AppHandle, slug: String) -> Result<(), String> {
-    close(&app, &slug).await;
+    close(&app, &slug, true).await;
     Ok(())
 }
 
-pub async fn close(app: &AppHandle, slug: &str) {
-    let Some(pid) = app.state::<RunState>().tools.lock().unwrap().get(slug).map(|r| r.pid) else { return };
-    // The tool's own quit command if it has one (single-instance apps pass it to the running copy).
+/// Ask a running tool to quit: its own quit command first (single-instance apps pass it to the
+/// running copy), then a polite quit signal. Only when `force` (the person pressed Close) is it
+/// force-quit after that. True once it has exited.
+pub async fn close(app: &AppHandle, slug: &str, force: bool) -> bool {
+    let Some(pid) = app.state::<RunState>().tools.lock().unwrap().get(slug).map(|r| r.pid) else { return true };
+    let wait = |ms: u32| async move { tokio::task::spawn_blocking(move || native::wait_exit(pid, ms)).await.unwrap_or(false) };
     let asked = installed(app, slug).is_some_and(|t| send_control(&t, &t.quit_args));
-    if !asked {
-        native::ask_to_quit(pid);
-    }
-    // Give it 3 seconds to quit by itself, then make it.
-    let exited = tokio::task::spawn_blocking(move || native::wait_exit(pid, 3000)).await.unwrap_or(false);
+    let mut exited = asked && wait(3000).await;
     if !exited {
+        native::ask_to_quit(pid);
+        exited = wait(3000).await;
+    }
+    if !exited && force {
         native::kill_tree(pid);
-        let _ = tokio::task::spawn_blocking(move || native::wait_exit(pid, 2000)).await;
+        exited = wait(2000).await;
     }
     refresh(app);
-}
-
-/// Tray menu action ids: "tool:<open|hide|close>:<slug>".
-pub fn handle_tray(app: &AppHandle, id: &str) {
-    let mut parts = id.splitn(3, ':');
-    let (Some("tool"), Some(action), Some(slug)) = (parts.next(), parts.next(), parts.next()) else { return };
-    let (app, slug) = (app.clone(), slug.to_string());
-    let result = match action {
-        "open" => tool_open(app.clone(), slug),
-        "hide" => tool_hide(app.clone(), slug),
-        "close" => {
-            tauri::async_runtime::spawn(async move { close(&app, &slug).await });
-            Ok(())
-        }
-        _ => Ok(()),
-    };
-    if let Err(e) = result {
-        let _ = crate::installer::notify_error(&e);
-    }
+    exited
 }
 
 #[cfg(windows)]
@@ -283,13 +303,6 @@ mod native {
         found.windows.first().map(|w| (w.0, w.2))
     }
 
-    pub fn window_state(pid: u32) -> String {
-        match main_window(pid) {
-            Some((hwnd, true)) if unsafe { IsIconic(hwnd) } == 0 => "shown".into(),
-            _ => "hidden".into(),
-        }
-    }
-
     pub fn show(pid: u32) -> bool {
         let Some((hwnd, _)) = main_window(pid) else { return false };
         unsafe {
@@ -300,12 +313,6 @@ mod native {
             keybd_event(VK_MENU as u8, 0, KEYEVENTF_KEYUP, 0);
             SetForegroundWindow(hwnd);
         }
-        true
-    }
-
-    pub fn hide(pid: u32) -> bool {
-        let Some((hwnd, _)) = main_window(pid) else { return false };
-        unsafe { ShowWindow(hwnd, SW_HIDE) };
         true
     }
 
@@ -344,18 +351,13 @@ mod native {
 
 #[cfg(not(windows))]
 mod native {
-    //! macOS: drive the app through System Events (hide/show) and a polite quit.
+    //! macOS: bring the app forward through System Events, quit with SIGTERM (polite) and
+    //! SIGKILL (only for an explicit Close that didn't work).
     fn osa(script: &str) -> bool {
         std::process::Command::new("osascript").args(["-e", script]).status().map(|s| s.success()).unwrap_or(false)
     }
-    pub fn window_state(_pid: u32) -> String {
-        "shown".into()
-    }
     pub fn show(pid: u32) -> bool {
         osa(&format!("tell application \"System Events\" to set frontmost of (first process whose unix id is {pid}) to true"))
-    }
-    pub fn hide(pid: u32) -> bool {
-        osa(&format!("tell application \"System Events\" to set visible of (first process whose unix id is {pid}) to false"))
     }
     pub fn ask_to_quit(pid: u32) {
         let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
