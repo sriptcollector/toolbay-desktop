@@ -4,6 +4,8 @@ mod firstrun;
 mod installer;
 mod manifest;
 mod running;
+#[cfg(target_os = "macos")]
+mod selfcopy;
 mod store;
 mod sync;
 
@@ -49,6 +51,9 @@ pub fn run() {
         .manage(installer::Busy::default())
         .setup(|app| {
             let handle = app.handle().clone();
+            // Mac: close and trash older copies of Toolbay so only one ever runs (selfcopy.rs).
+            #[cfg(target_os = "macos")]
+            selfcopy::check(&handle);
 
             // On Windows/Linux in dev the scheme is registered at runtime; the
             // installers register it for release builds.
