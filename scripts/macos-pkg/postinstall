@@ -6,6 +6,9 @@ xattr -dr com.apple.quarantine "/Applications/Toolbay.app" 2>/dev/null || true
 # "Toolbay-Setup--<slug>.pkg", and the hub offers that tool on first launch (src-tauri/src/firstrun.rs).
 user=$(stat -f%Su /dev/console 2>/dev/null)
 if [ -n "$user" ] && [ "$user" != "root" ]; then
+  # The Installer leaves the app owned by root, so Toolbay couldn't update itself without asking
+  # for an admin password every time. Give it to the person who installed it.
+  chown -R "$user":staff "/Applications/Toolbay.app" 2>/dev/null || true
   home=$(dscl . -read "/Users/$user" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
   if [ -n "$home" ] && [ -d "$home/Library" ]; then
     dir="$home/Library/Application Support/ai.toolbay.desktop"

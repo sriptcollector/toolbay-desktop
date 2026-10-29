@@ -119,18 +119,21 @@ function LiveSocialPage({ hub }: { hub: Hub }) {
     if (!hub.user) return;
     getMe()
       .then(setMe)
-      .catch(() => setMe("error"));
+      // A blip keeps what's on screen (an onboarding in progress isn't thrown away).
+      .catch(() => setMe((cur) => (cur && cur !== "error" ? cur : "error")));
   }, [hub.user]);
   useEffect(load, [load]);
-  // Back from connecting GitHub in the browser: check again.
+  // Back from connecting GitHub in the browser: check again (only while waiting for that).
+  const waitingForGithub = !!me && me !== "error" && !me.github;
   useEffect(() => {
+    if (!waitingForGithub) return;
     window.addEventListener("focus", load);
     return () => window.removeEventListener("focus", load);
-  }, [load]);
+  }, [load, waitingForGithub]);
 
   if (!hub.user) {
     return (
-      <Gate title="Builder Social" body="Meet the people building on Toolbay. Sign in with your Toolbay account, then connect GitHub.">
+      <Gate hub={hub} title="Builder Social" body="Meet the people building on Toolbay. Sign in with your Toolbay account, then connect GitHub.">
         <button className="btn primary" onClick={hub.signIn}>
           Sign in
         </button>
@@ -140,17 +143,17 @@ function LiveSocialPage({ hub }: { hub: Hub }) {
   if (me === null) return <div className="empty">Loading…</div>;
   if (me === "error") {
     return (
-      <div className="empty">
-        Couldn't reach toolbay.ai.{" "}
-        <button className="link" onClick={load}>
+      <Gate hub={hub} title="Builder Social" body="Couldn't reach toolbay.ai. Check your internet connection.">
+        <button className="btn" onClick={load}>
           Try again
         </button>
-      </div>
+      </Gate>
     );
   }
   if (!me.github) {
     return (
       <Gate
+        hub={hub}
         title="Connect GitHub to join Builder Social"
         body="Builder Social is for people who build. Connect GitHub to your Toolbay account and your profile fills in from your work: what you're good at, your projects, and who you'd build well with."
       >
@@ -167,15 +170,20 @@ function LiveSocialPage({ hub }: { hub: Hub }) {
   return <SocialHome hub={hub} settings={me.settings} />;
 }
 
-function Gate({ title, body, children }: { title: string; body: string; children: React.ReactNode }) {
+/** What's needed to join, with the feed underneath: anyone can still read and post. */
+function Gate({ hub, title, body, children }: { hub: Hub; title: string; body: string; children: React.ReactNode }) {
   return (
-    <div className="social-gate">
-      <h1>{title}</h1>
-      <p className="lede">{body}</p>
-      <div className="row" style={{ gap: 8 }}>
-        {children}
+    <>
+      <div className="social-gate">
+        <h1>{title}</h1>
+        <p className="lede">{body}</p>
+        <div className="row" style={{ gap: 8 }}>
+          {children}
+        </div>
       </div>
-    </div>
+      <h2>Feed</h2>
+      <CommunityPage hub={hub} embedded />
+    </>
   );
 }
 
@@ -185,7 +193,9 @@ function Onboarding({ me, onDone, hub }: { me: Extract<Me, { github: true }>; on
   const [autoProfile, setAutoProfile] = useState(true);
   const [autoPost, setAutoPost] = useState(true);
   const [share, setShare] = useState<ActivityMode>("off");
-  const [picked, setPicked] = useState<boolean[]>(() => me.drafts.map(() => true));
+  // Unticked drafts, by link (or text): a refreshed list keeps ticks, new drafts start ticked.
+  const [unpicked, setUnpicked] = useState<Set<string>>(() => new Set());
+  const keyOf = (d: { body: string; linkUrl: string | null }) => d.linkUrl ?? d.body;
   const [saving, setSaving] = useState(false);
 
   const finish = async () => {
@@ -195,7 +205,7 @@ function Onboarding({ me, onDone, hub }: { me: Extract<Me, { github: true }>; on
         autoProfile,
         autoPost,
         shareActivity: share,
-        post: picked.flatMap((on, i) => (on ? [i] : [])),
+        post: me.drafts.map(keyOf).filter((k) => !unpicked.has(k)),
       });
       if (r.posted) {
         hub.toast(`Posted ${r.posted} ${r.posted === 1 ? "project" : "projects"} for you.`);
@@ -235,9 +245,20 @@ function Onboarding({ me, onDone, hub }: { me: Extract<Me, { github: true }>; on
       />
       {autoPost && me.drafts.length > 0 && (
         <div className="panel" style={{ marginBottom: 12 }}>
-          {me.drafts.map((d, i) => (
-            <label className="list-row clickable" key={i}>
-              <input type="checkbox" checked={picked[i]} onChange={(e) => setPicked((p) => p.map((x, j) => (j === i ? e.target.checked : x)))} />
+          {me.drafts.map((d) => (
+            <label className="list-row clickable" key={keyOf(d)}>
+              <input
+                type="checkbox"
+                checked={!unpicked.has(keyOf(d))}
+                onChange={(e) =>
+                  setUnpicked((s) => {
+                    const n = new Set(s);
+                    if (e.target.checked) n.delete(keyOf(d));
+                    else n.add(keyOf(d));
+                    return n;
+                  })
+                }
+              />
               <div className="grow">
                 <div>{d.body}</div>
                 {d.linkUrl && <div className="small muted mono">{d.linkUrl.replace(/^https:\/\//, "")}</div>}
@@ -585,14 +606,26 @@ export function usePresence(hub: Hub) {
     let stopped = false;
     let share: ActivityMode = "off";
     let member = false;
-    const readSettings = () =>
-      getMe()
+    // Settings are read once, then again only after a failure (offline at launch, GitHub
+    // disconnected) or when they change, so a bad start never leaves presence off for the session.
+    let known = false;
+    let checkedAt = 0;
+    const readSettings = () => {
+      checkedAt = Date.now();
+      return getMe()
         .then((m) => {
           member = m.github && m.settings.onboarded;
           share = m.github ? m.settings.shareActivity : "off";
+          known = true;
         })
-        .catch(() => {});
+        .catch(() => {
+          known = false;
+        });
+    };
     const beat = async () => {
+      if (stopped) return;
+      // Not joined (or unknown): look again every 10 minutes at most, not every beat.
+      if ((!known || !member) && Date.now() - checkedAt > 10 * 60_000) await readSettings();
       if (stopped || !member) return;
       let activity: string | null = null;
       if (share !== "off") {
@@ -600,7 +633,15 @@ export function usePresence(hub: Hub) {
         activity = fg ? describe(fg, names.split("\n").filter(Boolean)) : null;
         if (!activity && document.hasFocus()) activity = "Browsing Toolbay";
       }
-      await callApi("POST", "/api/v1/social/presence", { activity }).catch(() => {});
+      try {
+        const r = await callApi<{ shareActivity?: ActivityMode }>("POST", "/api/v1/social/presence", { activity });
+        if (r.shareActivity) share = r.shareActivity;
+      } catch {
+        // Signed out or GitHub disconnected (or offline): stop until the settings say otherwise.
+        member = false;
+        known = false;
+        checkedAt = 0;
+      }
     };
     const onSettings = () => readSettings().then(beat);
     readSettings().then(beat);

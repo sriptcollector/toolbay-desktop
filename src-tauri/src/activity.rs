@@ -16,63 +16,76 @@ pub struct Foreground {
     pub app: Option<String>,
 }
 
-/// (matches the app name or exe, lowercase, contains) -> (label, is a code editor)
-const APPS: &[(&str, &str, bool)] = &[
-    ("code - insiders", "Coding in VS Code", true),
-    ("visual studio code", "Coding in VS Code", true),
-    ("code.exe", "Coding in VS Code", true),
-    ("cursor", "Coding in Cursor", true),
-    ("windsurf", "Coding in Windsurf", true),
-    ("zed", "Coding in Zed", true),
-    ("xcode", "Coding in Xcode", false),
-    ("android studio", "Coding in Android Studio", false),
-    ("studio64", "Coding in Android Studio", false),
-    ("intellij", "Coding in IntelliJ", false),
-    ("idea64", "Coding in IntelliJ", false),
-    ("pycharm", "Coding in PyCharm", false),
-    ("webstorm", "Coding in WebStorm", false),
-    ("rustrover", "Coding in RustRover", false),
-    ("goland", "Coding in GoLand", false),
-    ("rider", "Coding in Rider", false),
-    ("sublime", "Coding in Sublime Text", false),
-    ("devenv", "Coding in Visual Studio", false),
-    ("nvim", "Coding in Neovim", false),
-    ("windowsterminal", "In the terminal", false),
-    ("terminal", "In the terminal", false),
-    ("iterm", "In the terminal", false),
-    ("warp", "In the terminal", false),
-    ("ghostty", "In the terminal", false),
-    ("figma", "Designing in Figma", false),
-    ("sketch", "Designing in Sketch", false),
-    ("blender", "Modeling in Blender", false),
-    ("unity", "Building in Unity", false),
-    ("godot", "Building in Godot", false),
-    ("unrealeditor", "Building in Unreal", false),
-    ("claude", "Building with Claude", false),
-    ("chatgpt", "Building with ChatGPT", false),
-    ("github desktop", "In GitHub Desktop", false),
-    ("postman", "Testing APIs in Postman", false),
-    ("docker", "In Docker", false),
+/// App name (macOS) or exe stem (Windows), lowercase, matched exactly or as a prefix (so
+/// "Cloudflare WARP" isn't the Warp terminal) -> (label, editor's title suffix for the project).
+const APPS: &[(&str, &str, Option<&str>)] = &[
+    ("code", "Coding in VS Code", Some("Visual Studio Code")),
+    ("visual studio code", "Coding in VS Code", Some("Visual Studio Code")),
+    ("code - insiders", "Coding in VS Code", Some("Visual Studio Code - Insiders")),
+    ("cursor", "Coding in Cursor", Some("Cursor")),
+    ("windsurf", "Coding in Windsurf", Some("Windsurf")),
+    ("zed", "Coding in Zed", None),
+    ("xcode", "Coding in Xcode", None),
+    ("android studio", "Coding in Android Studio", None),
+    ("studio64", "Coding in Android Studio", None),
+    ("intellij idea", "Coding in IntelliJ", None),
+    ("idea64", "Coding in IntelliJ", None),
+    ("pycharm", "Coding in PyCharm", None),
+    ("webstorm", "Coding in WebStorm", None),
+    ("rustrover", "Coding in RustRover", None),
+    ("goland", "Coding in GoLand", None),
+    ("rider", "Coding in Rider", None),
+    ("rider64", "Coding in Rider", None),
+    ("sublime text", "Coding in Sublime Text", None),
+    ("sublime_text", "Coding in Sublime Text", None),
+    ("devenv", "Coding in Visual Studio", None),
+    ("windowsterminal", "In the terminal", None),
+    ("terminal", "In the terminal", None),
+    ("iterm2", "In the terminal", None),
+    ("iterm", "In the terminal", None),
+    ("warp", "In the terminal", None),
+    ("ghostty", "In the terminal", None),
+    ("figma", "Designing in Figma", None),
+    ("sketch", "Designing in Sketch", None),
+    ("blender", "Modeling in Blender", None),
+    ("unity", "Building in Unity", None),
+    ("unity hub", "Building in Unity", None),
+    ("godot", "Building in Godot", None),
+    ("unrealeditor", "Building in Unreal", None),
+    ("claude", "Building with Claude", None),
+    ("chatgpt", "Building with ChatGPT", None),
+    ("github desktop", "In GitHub Desktop", None),
+    ("githubdesktop", "In GitHub Desktop", None),
+    ("postman", "Testing APIs in Postman", None),
+    ("docker desktop", "In Docker", None),
 ];
 
 fn classify(app: &str, title: &str) -> Foreground {
-    let mut key = app.to_lowercase();
-    // VS Code's Mac name is just "Code" (and "code" is inside "xcode").
-    if key == "code" {
-        key = "visual studio code".into();
-    }
-    let hit = APPS.iter().find(|(m, _, _)| key.contains(m));
-    let project = hit.filter(|(_, _, editor)| *editor).and_then(|_| project_from_title(title));
+    let lower = app.to_lowercase();
+    let key = lower.strip_suffix(".exe").unwrap_or(&lower);
+    // Exact name first; then a name followed by a version or edition ("pycharm64", "godot_v4.2").
+    let hit = APPS.iter().find(|(m, _, _)| key == *m).or_else(|| {
+        APPS.iter()
+            .filter(|(m, _, _)| m.len() >= 4)
+            .find(|(m, _, _)| key.strip_prefix(m).is_some_and(|rest| rest.starts_with(|c: char| !c.is_ascii_alphabetic())))
+    });
+    let project = hit.and_then(|(_, _, suffix)| suffix.and_then(|s| project_from_title(title, s)));
     Foreground { label: hit.map(|(_, l, _)| l.to_string()), project, app: Some(app.to_string()) }
 }
 
-/// VS Code-style titles: "● file.ts - project - Visual Studio Code" -> "project".
-fn project_from_title(title: &str) -> Option<String> {
-    let parts: Vec<&str> = title.split(" - ").map(str::trim).collect();
-    let p = (parts.len() >= 3).then(|| parts[parts.len() - 2])?;
-    let p = p.trim_start_matches(['●', '•', ' ']).trim();
-    let p = p.split(" (").next().unwrap_or(p).trim();
-    (!p.is_empty() && p.len() <= 60 && !p.contains(['/', '\\'])).then(|| p.to_string())
+/// VS Code-style titles, "● file.ts - project - Visual Studio Code" -> "project". Only when the
+/// title really ends with the editor's name; never a remote host ("[SSH: host]") or a file name.
+fn project_from_title(title: &str, editor: &str) -> Option<String> {
+    let rest = title.strip_suffix(editor)?.trim_end().strip_suffix(" -")?.trim_end();
+    let parts: Vec<&str> = rest.split(" - ").map(str::trim).collect();
+    // "file - project": two parts. One part is a window with no folder (just a file): nothing.
+    if parts.len() < 2 {
+        return None;
+    }
+    let p = parts[parts.len() - 1].trim_start_matches(['●', '•', ' ']).trim();
+    let p = p.split(" [").next().unwrap_or(p).split(" (").next().unwrap_or(p).trim();
+    let looks_like_file = p.rsplit_once('.').is_some_and(|(_, ext)| (1..=5).contains(&ext.len()) && ext.chars().all(|c| c.is_ascii_alphanumeric()));
+    (!p.is_empty() && p.len() <= 60 && !p.contains(['/', '\\', '@', ':']) && !looks_like_file).then(|| p.to_string())
 }
 
 #[cfg(windows)]
@@ -146,6 +159,24 @@ mod tests {
         assert_eq!(f.project.as_deref(), Some("westward"));
         let f = classify("Cursor.exe", "main.rs - toolbay-desktop (Workspace) - Cursor");
         assert_eq!(f.project.as_deref(), Some("toolbay-desktop"));
+    }
+
+    #[test]
+    fn no_hosts_or_file_names() {
+        let f = classify("Code.exe", "file.ts - proj [SSH: prod-db.corp.internal] - Visual Studio Code");
+        assert_eq!(f.project.as_deref(), Some("proj"));
+        let f = classify("Code.exe", "q3 - plan.md - Visual Studio Code");
+        assert!(f.project.is_none());
+        let f = classify("Code.exe", "notes.txt - Visual Studio Code");
+        assert!(f.project.is_none());
+        let f = classify("Cloudflare WARP", "");
+        assert!(f.label.is_none());
+        let f = classify("Xcode", "");
+        assert_eq!(f.label.as_deref(), Some("Coding in Xcode"));
+        let f = classify("Code", "");
+        assert_eq!(f.label.as_deref(), Some("Coding in VS Code"));
+        let f = classify("pycharm64.exe", "");
+        assert_eq!(f.label.as_deref(), Some("Coding in PyCharm"));
     }
 
     #[test]

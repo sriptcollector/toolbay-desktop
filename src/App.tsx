@@ -87,6 +87,10 @@ async function runHubUpdate(show: (u: HubUpdate | null) => void): Promise<"lates
   if (hubUpdating) return "updating";
   hubUpdating = true;
   let stallTimer = 0;
+  // The download can't be cancelled; a stalled one is only abandoned: the bar goes away, but
+  // "updating" (and the hold on closing) stay until it really ends, so two never run at once.
+  let abandoned = false;
+  const job: { inFlight: Promise<void> | null } = { inFlight: null };
   try {
     const { check } = await import("@tauri-apps/plugin-updater");
     const update = await check({ timeout: 60_000 });
@@ -98,11 +102,15 @@ async function runHubUpdate(show: (u: HubUpdate | null) => void): Promise<"lates
     await new Promise<void>((resolve, reject) => {
       const arm = () => {
         window.clearTimeout(stallTimer);
-        stallTimer = window.setTimeout(() => reject(new Error("update stalled")), STALL_MS);
+        stallTimer = window.setTimeout(() => {
+          abandoned = true;
+          reject(new Error("update stalled"));
+        }, STALL_MS);
       };
       arm();
-      update
+      job.inFlight = update
         .downloadAndInstall((e) => {
+          if (abandoned) return;
           if (e.event === "Started") state = { ...state, total: e.data.contentLength ?? null };
           else if (e.event === "Progress") state = { ...state, received: state.received + e.data.chunkLength };
           else state = { ...state, stage: "installing" };
@@ -111,7 +119,7 @@ async function runHubUpdate(show: (u: HubUpdate | null) => void): Promise<"lates
           else window.clearTimeout(stallTimer);
           show(state);
         })
-        .then(resolve, reject);
+      job.inFlight.then(resolve, reject);
     });
     show({ ...state, stage: "restarting" });
     const { relaunch } = await import("@tauri-apps/plugin-process");
@@ -126,8 +134,12 @@ async function runHubUpdate(show: (u: HubUpdate | null) => void): Promise<"lates
     return "failed";
   } finally {
     window.clearTimeout(stallTimer);
-    native.hubBusy(false).catch(() => {});
-    hubUpdating = false;
+    const release = () => {
+      native.hubBusy(false).catch(() => {});
+      hubUpdating = false;
+    };
+    if (abandoned && job.inFlight) job.inFlight.then(release, release);
+    else release();
   }
 }
 
