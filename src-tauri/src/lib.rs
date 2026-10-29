@@ -1,3 +1,4 @@
+mod activity;
 mod api;
 mod auth;
 mod firstrun;
@@ -51,9 +52,19 @@ pub fn run() {
         .manage(installer::Busy::default())
         .setup(|app| {
             let handle = app.handle().clone();
+            let mut start_links: Vec<String> = std::env::args()
+                .filter(|a| a.starts_with("toolbay://"))
+                .chain(app.deep_link().get_current().ok().flatten().unwrap_or_default().into_iter().map(|u| u.to_string()))
+                .collect();
+            start_links.sort();
+            start_links.dedup_by(|a, b| a.trim_end_matches('/') == b.trim_end_matches('/'));
+
             // Mac: close and trash older copies of Toolbay so only one ever runs (selfcopy.rs).
+            // A newer copy is already running: it got our links; start nothing here.
             #[cfg(target_os = "macos")]
-            selfcopy::check(&handle);
+            if !selfcopy::check(&handle, &start_links) {
+                return Ok(());
+            }
 
             // On Windows/Linux in dev the scheme is registered at runtime; the
             // installers register it for release builds.
@@ -70,12 +81,6 @@ pub fn run() {
 
             // The window starts hidden so a desktop shortcut (toolbay://launch/<slug>)
             // can open its tool without flashing the hub.
-            let mut start_links: Vec<String> = std::env::args()
-                .filter(|a| a.starts_with("toolbay://"))
-                .chain(app.deep_link().get_current().ok().flatten().unwrap_or_default().into_iter().map(|u| u.to_string()))
-                .collect();
-            start_links.sort();
-            start_links.dedup_by(|a, b| a.trim_end_matches('/') == b.trim_end_matches('/'));
             if !start_links.iter().any(|l| auth::is_launch_link(l)) {
                 show_main(&handle);
             }
@@ -134,6 +139,8 @@ pub fn run() {
             installer::tool_uninstall,
             installer::tool_shortcut,
             installer::tool_reveal,
+            installer::hub_busy,
+            activity::foreground_activity,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Toolbay");

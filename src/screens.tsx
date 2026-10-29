@@ -18,6 +18,7 @@ import {
 import { DropCard, DropEmailsSetting, ToolSpace } from "./spaces";
 import { shareTool } from "./invite";
 import { RunStatus, ToolControls } from "./controls";
+import { BuilderSocialSettings } from "./social";
 
 const open = (url: string) =>
   isTauri ? openUrl(url) : window.open(url, "_blank");
@@ -804,7 +805,8 @@ interface PendingPost {
   failed: boolean;
 }
 
-export function CommunityPage({ hub }: { hub: Hub }) {
+/** The feed. `embedded`: shown as Builder Social's Feed tab, without its own heading. */
+export function CommunityPage({ hub, embedded = false }: { hub: Hub; embedded?: boolean }) {
   const [body, setBody] = useState("");
   const [pending, setPending] = useState<PendingPost[]>([]);
 
@@ -839,14 +841,18 @@ export function CommunityPage({ hub }: { hub: Hub }) {
   const me = hub.user;
   return (
     <>
-      <h1>Community</h1>
-      <p className="lede">
-        Tips, questions and what people are making with their tools.
-      </p>
+      {!embedded && (
+        <>
+          <h1>Community</h1>
+          <p className="lede">
+            Tips, questions and what people are making with their tools.
+          </p>
+        </>
+      )}
       {me ? (
         <div className="composer">
           <textarea
-            autoFocus
+            autoFocus={!embedded}
             placeholder="Share something…"
             value={body}
             onChange={(e) => setBody(e.target.value)}
@@ -999,8 +1005,12 @@ export function SettingsPage({
           <button
             className="btn"
             onClick={async () => {
-              await native.signOut();
-              setUser(null);
+              try {
+                await native.signOut();
+                setUser(null);
+              } catch (e) {
+                hub.toast(String(e));
+              }
             }}
           >
             Sign out
@@ -1054,6 +1064,7 @@ export function SettingsPage({
         </div>
       </div>
       <DropEmailsSetting hub={hub} />
+      <BuilderSocialSettings hub={hub} />
       <div className="settings-row">
         <div className="grow">
           <div className="title">Toolbay</div>

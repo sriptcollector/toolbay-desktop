@@ -5,7 +5,8 @@ import type { InstalledTool, Post, Tool, User } from "./lib/types";
 import { NavIcon } from "./components";
 import logo from "./assets/logo.png";
 import { loadAppearance } from "./lib/theme";
-import { CommunityPage, HomePage, LibraryPage, RunningPage, SettingsPage, ToolDetail, ToolsPage } from "./screens";
+import { HomePage, LibraryPage, RunningPage, SettingsPage, ToolDetail, ToolsPage } from "./screens";
+import { BuilderSocialPage, usePresence } from "./social";
 import { ProjectsPage, readyTools } from "./projects";
 import { ProfilePage } from "./profile";
 import { RequestsPage } from "./requests";
@@ -61,7 +62,7 @@ const NAV: { page: Page; label: string }[] = [
   { page: "running", label: "Running now" },
   { page: "tools", label: "Tools" },
   { page: "library", label: "Library" },
-  { page: "community", label: "Community" },
+  { page: "community", label: "Builder Social" },
   { page: "requests", label: "Requests" },
 ];
 
@@ -80,30 +81,52 @@ export interface HubUpdate {
  *  quietly, restart. Open tools are separate apps, so they keep running while the hub restarts.
  *  Resolves "latest" when there's nothing newer, "failed" when it couldn't check or install. */
 let hubUpdating = false;
+/** No download progress for this long (a Mac asleep mid-download, Wi-Fi gone): give up for now. */
+const STALL_MS = 90_000;
 async function runHubUpdate(show: (u: HubUpdate | null) => void): Promise<"latest" | "failed" | "updating"> {
   if (hubUpdating) return "updating";
   hubUpdating = true;
+  let stallTimer = 0;
   try {
     const { check } = await import("@tauri-apps/plugin-updater");
-    const update = await check();
+    const update = await check({ timeout: 60_000 });
     if (!update) return "latest";
     let state: HubUpdate = { version: update.version, stage: "downloading", received: 0, total: null };
     show(state);
-    await update.downloadAndInstall((e) => {
-      if (e.event === "Started") state = { ...state, total: e.data.contentLength ?? null };
-      else if (e.event === "Progress") state = { ...state, received: state.received + e.data.chunkLength };
-      else state = { ...state, stage: "installing" };
-      show(state);
+    // Closing the window waits for this, so Toolbay is never quit halfway through replacing itself.
+    await native.hubBusy(true).catch(() => {});
+    await new Promise<void>((resolve, reject) => {
+      const arm = () => {
+        window.clearTimeout(stallTimer);
+        stallTimer = window.setTimeout(() => reject(new Error("update stalled")), STALL_MS);
+      };
+      arm();
+      update
+        .downloadAndInstall((e) => {
+          if (e.event === "Started") state = { ...state, total: e.data.contentLength ?? null };
+          else if (e.event === "Progress") state = { ...state, received: state.received + e.data.chunkLength };
+          else state = { ...state, stage: "installing" };
+          // Installing can take a while (a password prompt on some Macs): only downloads stall.
+          if (state.stage === "downloading") arm();
+          else window.clearTimeout(stallTimer);
+          show(state);
+        })
+        .then(resolve, reject);
     });
     show({ ...state, stage: "restarting" });
     const { relaunch } = await import("@tauri-apps/plugin-process");
     await relaunch();
-    return "updating";
+    // Still here after 15 s: the restart didn't happen. Let the next check try again.
+    await new Promise((r) => window.setTimeout(r, 15_000));
+    show(null);
+    return "failed";
   } catch {
-    // Offline or no release yet: the next check tries again.
+    // Offline, stalled or no release yet: the next check tries again.
     show(null);
     return "failed";
   } finally {
+    window.clearTimeout(stallTimer);
+    native.hubBusy(false).catch(() => {});
     hubUpdating = false;
   }
 }
@@ -268,7 +291,10 @@ export default function App() {
       native.onRunning(setRunning),
       native.onLibrary(refreshLibrary),
       native.onUpdateStarted((u) => setToolUpdates((cur) => ({ ...cur, [u.slug]: u.name }))),
-      native.onUpdateFailed((u) => doneUpdating(u.slug)),
+      native.onUpdateFailed((u) => {
+        doneUpdating(u.slug);
+        setProgress(({ [u.slug]: _, ...rest }) => rest);
+      }),
       native.onUpdated((u) => {
         doneUpdating(u.slug);
         toast(`${u.name} was updated to ${u.version}.`);
@@ -372,6 +398,9 @@ export default function App() {
         try {
           await native.updateNow(t.slug);
         } catch (e) {
+          // Failed before the install began ("didn't close", "already updating"): nothing else
+          // clears "Getting ready…".
+          setProgress(({ [t.slug]: _, ...rest }) => rest);
           toast(String(e));
         } finally {
           await refreshLibrary();
@@ -380,6 +409,7 @@ export default function App() {
     }),
     [tools, projectTools, posts, library, running, user, live, loaded, busy, progress, pendingUpdates, justInstalled, toast, refreshPosts, refreshLibrary, act],
   );
+  usePresence(hub);
 
   let body: React.ReactNode;
   if (route.page === "tools" && route.slug) body = <ToolDetail hub={hub} slug={route.slug} />;
@@ -389,7 +419,7 @@ export default function App() {
   else if (route.page === "requests") body = <RequestsPage hub={hub} id={route.slug} />;
   else if (route.page === "profile" && route.slug) body = <ProfilePage hub={hub} handle={route.slug} />;
   else if (route.page === "running") body = <RunningPage hub={hub} />;
-  else if (route.page === "community") body = <CommunityPage hub={hub} />;
+  else if (route.page === "community") body = <BuilderSocialPage hub={hub} />;
   else if (route.page === "library") body = <LibraryPage hub={hub} />;
   else if (route.page === "settings") body = <SettingsPage hub={hub} setUser={setUser} />;
   else body = <HomePage hub={hub} />;

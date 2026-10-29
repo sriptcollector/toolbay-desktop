@@ -121,6 +121,8 @@ export interface Profile {
   name: string;
   avatarUrl: string | null;
   bio: string | null;
+  /** Builder Social's "good at" line, written from their builds. */
+  skills?: string | null;
   location: string | null;
   links: { website: string | null; github: string | null; x: string | null };
   joinedAt: string;

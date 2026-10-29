@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use tauri::Emitter;
 use tauri::{AppHandle, Manager};
 
@@ -12,6 +13,11 @@ pub fn data_dir(app: &AppHandle) -> PathBuf {
     dir
 }
 
+/// Read-modify-write of settings.json / library.json happens from many threads (sync, auto
+/// update, the window); each change holds its file's lock so one can't undo another.
+static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
+pub static LIBRARY_LOCK: Mutex<()> = Mutex::new(());
+
 fn read_json<T: for<'de> Deserialize<'de> + Default>(path: PathBuf) -> T {
     std::fs::read_to_string(path)
         .ok()
@@ -20,10 +26,14 @@ fn read_json<T: for<'de> Deserialize<'de> + Default>(path: PathBuf) -> T {
 }
 
 fn write_json<T: Serialize>(path: PathBuf, value: &T) -> Result<(), String> {
-    let tmp = path.with_extension("tmp");
+    // A tmp name of its own per write, so two writers never interleave into one file.
+    let tmp = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4().simple()));
     let body = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
     std::fs::write(&tmp, body).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    std::fs::rename(&tmp, &path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })
 }
 
 // ---- settings ----
@@ -45,10 +55,12 @@ pub fn settings_get(app: AppHandle) -> Settings {
 
 #[tauri::command]
 pub fn settings_set(app: AppHandle, key: String, value: String) -> Result<(), String> {
+    let guard = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut s = settings(&app);
     let changed = s.get(&key) != Some(&value);
     s.insert(key.clone(), value);
     write_json(data_dir(&app).join("settings.json"), &s)?;
+    drop(guard);
     if changed && crate::sync::is_synced_setting(&key) {
         crate::sync::push_settings(&app);
     }
@@ -101,6 +113,7 @@ pub fn save_library(app: &AppHandle, lib: &[InstalledTool]) -> Result<(), String
 }
 
 pub fn upsert(app: &AppHandle, entry: InstalledTool) -> Result<(), String> {
+    let _guard = LIBRARY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut lib = library(app);
     lib.retain(|t| t.slug != entry.slug);
     lib.push(entry);
@@ -110,6 +123,7 @@ pub fn upsert(app: &AppHandle, entry: InstalledTool) -> Result<(), String> {
 /// A tool's slug changed on toolbay.ai (e.g. toolbay-notes -> cereal): keep the installed copy.
 #[tauri::command]
 pub fn library_rename(app: AppHandle, from: String, to: String) -> Result<(), String> {
+    let guard = LIBRARY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut lib = library(&app);
     if from == to || lib.iter().any(|t| t.slug == to) {
         return Ok(());
@@ -117,6 +131,7 @@ pub fn library_rename(app: AppHandle, from: String, to: String) -> Result<(), St
     let Some(t) = lib.iter_mut().find(|t| t.slug == from) else { return Ok(()) };
     t.slug = to;
     save_library(&app, &lib)?;
+    drop(guard);
     app.emit("library-changed", ()).ok();
     Ok(())
 }

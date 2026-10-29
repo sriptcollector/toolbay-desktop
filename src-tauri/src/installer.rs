@@ -28,6 +28,19 @@ const DAMAGED: &str = "The download was damaged on the way. Please try again.";
 #[derive(Default)]
 pub struct Busy(pub Mutex<HashSet<String>>);
 
+/// Toolbay updating itself: closing the window (or a shortcut launch timing out) waits for it,
+/// like it waits for a tool install, so the app is never killed mid-replace.
+#[tauri::command]
+pub fn hub_busy(app: AppHandle, on: bool) {
+    let busy = app.state::<Busy>();
+    let mut b = busy.0.lock().unwrap();
+    if on {
+        b.insert("__hub__".into());
+    } else {
+        b.remove("__hub__");
+    }
+}
+
 #[derive(Serialize, Clone)]
 struct Progress<'a> {
     slug: &'a str,
@@ -52,6 +65,19 @@ fn tools_root(app: &AppHandle) -> PathBuf {
     let root = app.path().local_data_dir().expect("local data").join("Programs").join("Toolbay Tools");
     std::fs::create_dir_all(&root).ok();
     root
+}
+
+/// A folder Toolbay installed tools into. On a Mac that's either Toolbay folder: which one
+/// mac_root picks can change (e.g. /Applications stopped being writable), and an uninstall
+/// must still remove a tool from the other one.
+fn in_tools_root(app: &AppHandle, dir: &Path) -> bool {
+    #[cfg(target_os = "macos")]
+    if let Ok(home) = app.path().home_dir() {
+        if dir.starts_with("/Applications/Toolbay") || dir.starts_with(home.join("Applications").join("Toolbay")) {
+            return true;
+        }
+    }
+    dir.starts_with(tools_root(app))
 }
 
 /// The tool's own app data dir (Tauri's app_data_dir for its identifier), so files
@@ -788,7 +814,7 @@ pub async fn tool_uninstall(app: AppHandle, slug: String) -> Result<(), String> 
         }
     }
     let dir = PathBuf::from(&tool.dir);
-    if dir.starts_with(tools_root(&app)) && dir.exists() {
+    if in_tools_root(&app, &dir) && dir.exists() {
         std::fs::remove_dir_all(&dir)
             .map_err(|_| format!("Couldn't remove {}. Close it if it's open, then try again.", tool.name))?;
     }
@@ -806,9 +832,12 @@ pub async fn tool_uninstall(app: AppHandle, slug: String) -> Result<(), String> 
     if let Some(s) = &tool.shortcut {
         std::fs::remove_file(s).ok();
     }
-    let mut lib = store::library(&app);
-    lib.retain(|t| t.slug != slug);
-    store::save_library(&app, &lib)?;
+    {
+        let _guard = store::LIBRARY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut lib = store::library(&app);
+        lib.retain(|t| t.slug != slug);
+        store::save_library(&app, &lib)?;
+    }
     app.emit("library-changed", ()).ok();
     Ok(())
 }
@@ -951,9 +980,15 @@ async fn update_now(app: &AppHandle, slug: &str) -> Result<InstalledTool, String
     let source = source_for(app, &t);
     let result = install_tool(app.clone(), slug.to_string(), source).await;
     end_update(slug);
-    if let Ok(new) = &result {
-        store::settings_set(app.clone(), pending_key(slug), String::new()).ok();
-        app.emit("tool-updated", serde_json::json!({ "slug": slug, "name": new.name, "version": new.version })).ok();
+    match &result {
+        Ok(new) => {
+            store::settings_set(app.clone(), pending_key(slug), String::new()).ok();
+            app.emit("tool-updated", serde_json::json!({ "slug": slug, "name": new.name, "version": new.version })).ok();
+        }
+        // Every failure clears the top bar, including ones install_tool returns before it starts.
+        Err(_) => {
+            app.emit("tool-update-failed", serde_json::json!({ "slug": slug })).ok();
+        }
     }
     if was_running {
         tool_launch(app.clone(), slug.to_string()).ok();

@@ -56,6 +56,7 @@ export function ProfilePage({ hub, handle }: { hub: Hub; handle: string }) {
             @{p.handle}
             {p.location ? ` · ${p.location}` : ""} · joined {new Date(p.joinedAt).toLocaleDateString()}
           </div>
+          {p.skills && <div className="small" style={{ marginTop: 6, color: "var(--text)" }}>Good at: {p.skills}</div>}
           {p.bio && <div className="prose" style={{ marginTop: 8, fontSize: 14 }}>{p.bio}</div>}
           <div className="row" style={{ marginTop: 12, gap: 8 }}>
             {links.map((l) => (

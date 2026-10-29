@@ -87,6 +87,12 @@ export const native = {
     isTauri ? invoke("sync_other_tools") : Promise.resolve([]),
   onSync: (cb: () => void) => on<null>("sync-changed", () => cb()),
 
+  /** Builder Social: the builder app in front (only listed apps are named; see activity.rs). */
+  foreground: (): Promise<{ label: string | null; project: string | null; app: string | null }> =>
+    invoke("foreground_activity"),
+  /** Toolbay is updating itself: closing the window waits for it. */
+  hubBusy: (on: boolean) => (isTauri ? invoke<void>("hub_busy", { on }) : Promise.resolve()),
+
   settings: (): Promise<Record<string, string>> => (isTauri ? invoke("settings_get") : Promise.resolve({})),
   setSetting: (key: string, value: string) => invoke<void>("settings_set", { key, value }),
 };

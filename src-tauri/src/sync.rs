@@ -26,6 +26,14 @@ fn computer_id(app: &AppHandle) -> String {
 }
 
 fn computer_name() -> String {
+    // Mac apps get no HOSTNAME; the name people gave their Mac is in scutil.
+    #[cfg(target_os = "macos")]
+    if let Ok(out) = std::process::Command::new("scutil").args(["--get", "ComputerName"]).output() {
+        let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if out.status.success() && !name.is_empty() {
+            return name;
+        }
+    }
     std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_else(|_| "Another computer".into())

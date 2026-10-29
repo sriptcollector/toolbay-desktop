@@ -57,23 +57,31 @@ fn alive(pid: u32) -> bool {
     Command::new("kill").args(["-0", &pid.to_string()]).status().is_ok_and(|s| s.success())
 }
 
+/// Ask it to quit and wait up to 5 s. Never force-killed: a tool copy it started (rsync) is a
+/// child process that finishes on its own, and a copy that won't quit is simply left running.
 fn stop(pid: u32) {
     let _ = Command::new("kill").args(["-TERM", &pid.to_string()]).status();
-    for _ in 0..30 {
+    for _ in 0..50 {
         if !alive(pid) {
             return;
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).status();
+}
+
+/// Running from a disk image or from macOS's translocation sandbox (an app opened straight from
+/// Downloads or a DMG): this copy isn't an install, so it changes nothing on disk.
+fn is_transient(own: &Path) -> bool {
+    own.starts_with("/Volumes") || own.to_string_lossy().contains("/AppTranslocation/")
 }
 
 /// Toolbay.app copies in the folders people actually keep apps in.
 fn copies_on_disk() -> Vec<PathBuf> {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     let mut dirs = vec![PathBuf::from("/Applications")];
+    // ~/Applications is left alone: it's where people without admin rights install apps.
     if let Some(h) = &home {
-        for d in ["Applications", "Downloads", "Desktop", "Documents"] {
+        for d in ["Downloads", "Desktop", "Documents"] {
             dirs.push(h.join(d));
         }
     }
@@ -109,22 +117,30 @@ fn to_trash(bundle: &Path) {
     }
 }
 
-pub fn check(app: &AppHandle) {
-    let Some(own) = own_bundle() else { return };
+/// Returns false when this copy steps aside for a newer one that's already running (setup
+/// must then stop: the app is exiting). `links` are toolbay:// links this launch was opened
+/// with; they're passed on so a sign-in or install link still lands.
+pub fn check(app: &AppHandle, links: &[String]) -> bool {
+    let Some(own) = own_bundle() else { return true };
     let Some(exe_name) = std::env::current_exe().ok().and_then(|e| e.file_name().map(|n| n.to_string_lossy().to_string())) else {
-        return;
+        return true;
     };
     let mine = app.package_info().version.to_string();
 
     for (pid, bundle) in other_running(&own, &exe_name) {
         let theirs = bundle_version(&bundle).unwrap_or_default();
         if crate::manifest::newer(&theirs, &mine) {
-            // That one is newer: bring it forward and step aside.
-            let _ = Command::new("open").arg(&bundle).status();
+            // That one is newer: bring it forward (with this launch's links) and step aside.
+            let _ = Command::new("open").arg("-a").arg(&bundle).args(links).status();
             app.exit(0);
-            return;
+            return false;
         }
-        stop(pid);
+        if !is_transient(&own) {
+            stop(pid);
+        }
+    }
+    if is_transient(&own) {
+        return true;
     }
 
     std::thread::spawn(move || {
@@ -134,8 +150,9 @@ pub fn check(app: &AppHandle) {
             if bundle == own || bundle.starts_with("/Volumes") || (bundle.starts_with("/Applications") && !own_in_apps) {
                 continue;
             }
+            // Only strictly older copies: a same-version copy might be the one macOS is about to run.
             let theirs = bundle_version(&bundle).unwrap_or_default();
-            if crate::manifest::newer(&theirs, &mine) {
+            if theirs.is_empty() || !crate::manifest::newer(&mine, &theirs) {
                 continue;
             }
             let running = other_running(&own, &exe_name).into_iter().any(|(_, b)| b == bundle);
@@ -144,4 +161,5 @@ pub fn check(app: &AppHandle) {
             }
         }
     });
+    true
 }
